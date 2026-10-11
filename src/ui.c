@@ -100,7 +100,7 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
     SelectObject(memDC, hFontTitle);
     SetTextColor(memDC, COLOR_TITLE);
     RECT rTitle = { 6, 2, width - 6, 17 };
-    DrawTextA(memDC, locked ? "HUD [F8]" : "HUD *", -1, &rTitle, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    DrawTextA(memDC, locked ? "HUD [F8]" : "ARRASTAR", -1, &rTitle, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
     // Linha divisória horizontal do cabeçalho
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
@@ -174,12 +174,12 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
     DrawTextA(memDC, "GHOST HUD  \x95  DESEMPENHO", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
     // Indicadores e atalhos à direita no cabeçalho
-    RECT rControls = { width - 150, 2, width - 10, 19 };
+    RECT rControls = { width - 165, 2, width - 8, 19 };
     SetTextColor(memDC, locked ? COLOR_LABEL : COLOR_CYAN);
     if (locked) {
         DrawTextA(memDC, "[JOGO] F9:MOVER  F8:MINI", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
     } else {
-        DrawTextA(memDC, "[AJUSTE] ARRASTE AQUI", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+        DrawTextA(memDC, "[AJUSTE: ARRASTE] F9:FIXAR", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
     }
 
     // Linha divisória horizontal separando o cabeçalho do conteúdo

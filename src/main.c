@@ -60,6 +60,14 @@ static HardwareMetrics g_metrics = {0};
 static NOTIFYICONDATAW g_nid = {0};
 static char g_iniPath[MAX_PATH] = {0};
 
+static HHOOK g_hHook = NULL;
+static DWORD g_lastToggleLockTime = 0;
+static DWORD g_lastToggleSizeTime = 0;
+
+static BOOL g_isDragging = FALSE;
+static POINT g_dragStartMouse = {0};
+static POINT g_dragStartWin = {0};
+
 static void get_ini_path(void) {
     GetModuleFileNameA(NULL, g_iniPath, MAX_PATH);
     char *lastSlash = strrchr(g_iniPath, '\\');
@@ -104,12 +112,22 @@ static void set_window_locked(HWND hWnd, BOOL locked) {
     }
     SetWindowLongPtrW(hWnd, GWL_EXSTYLE, style);
 
+    // CRÍTICO: Avisa o DWM que o estilo de frame mudou para aplicar transparência de cliques imediatamente!
+    SetWindowPos(hWnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
     RECT r;
     GetWindowRect(hWnd, &r);
     save_config(r.left, r.top, g_locked, g_minimized);
 
     update_tray_tip();
     InvalidateRect(hWnd, NULL, TRUE);
+}
+
+static void toggle_window_locked(HWND hWnd) {
+    DWORD now = GetTickCount();
+    if (now - g_lastToggleLockTime < 250) return;
+    g_lastToggleLockTime = now;
+    set_window_locked(hWnd, !g_locked);
 }
 
 static void set_window_minimized(HWND hWnd, BOOL min) {
@@ -126,6 +144,25 @@ static void set_window_minimized(HWND hWnd, BOOL min) {
 
     save_config(r.left, r.top, g_locked, g_minimized);
     InvalidateRect(hWnd, NULL, TRUE);
+}
+
+static void toggle_window_minimized(HWND hWnd) {
+    DWORD now = GetTickCount();
+    if (now - g_lastToggleSizeTime < 250) return;
+    g_lastToggleSizeTime = now;
+    set_window_minimized(hWnd, !g_minimized);
+}
+
+static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
+        KBDLLHOOKSTRUCT *p = (KBDLLHOOKSTRUCT *)lParam;
+        if (p->vkCode == VK_F9) {
+            PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_LOCK, 0);
+        } else if (p->vkCode == VK_F8) {
+            PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_SIZE, 0);
+        }
+    }
+    return CallNextHookEx(g_hHook, nCode, wParam, lParam);
 }
 
 static void show_tray_menu(HWND hWnd) {
@@ -156,12 +193,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
-        // Permite arrastar clicando em qualquer ponto do HUD no Modo Ajuste
+        // Modo Ajuste: HTCLIENT para receber cliques. Modo Jogo: HTTRANSPARENT para cliques passarem direto.
         case WM_NCHITTEST: {
-            if (!g_locked) {
-                return HTCAPTION;
+            if (g_locked) {
+                return HTTRANSPARENT;
             }
-            return HTTRANSPARENT;
+            return HTCLIENT;
         }
 
         case WM_SETCURSOR: {
@@ -174,9 +211,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_HOTKEY: {
             if (wParam == ID_HOTKEY_F9 || wParam == ID_HOTKEY_CTRL_F9 || wParam == ID_HOTKEY_CTRL_SHIFT_F9) {
-                set_window_locked(hWnd, !g_locked);
+                toggle_window_locked(hWnd);
             } else if (wParam == ID_HOTKEY_F8 || wParam == ID_HOTKEY_CTRL_F8) {
-                set_window_minimized(hWnd, !g_minimized);
+                toggle_window_minimized(hWnd);
             }
             return 0;
         }
@@ -201,15 +238,43 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_LBUTTONDBLCLK: {
             if (!g_locked) {
-                set_window_minimized(hWnd, !g_minimized);
+                toggle_window_minimized(hWnd);
             }
             return 0;
         }
 
+        // Sistema de arraste direto via SetCapture (100% infalível em qualquer versão do Windows)
         case WM_LBUTTONDOWN: {
             if (!g_locked) {
+                g_isDragging = TRUE;
+                SetCapture(hWnd);
+                GetCursorPos(&g_dragStartMouse);
+                RECT r;
+                GetWindowRect(hWnd, &r);
+                g_dragStartWin.x = r.left;
+                g_dragStartWin.y = r.top;
+            }
+            return 0;
+        }
+
+        case WM_MOUSEMOVE: {
+            if (g_isDragging) {
+                POINT pt;
+                GetCursorPos(&pt);
+                int nx = g_dragStartWin.x + (pt.x - g_dragStartMouse.x);
+                int ny = g_dragStartWin.y + (pt.y - g_dragStartMouse.y);
+                SetWindowPos(hWnd, HWND_TOPMOST, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
+            return 0;
+        }
+
+        case WM_LBUTTONUP: {
+            if (g_isDragging) {
+                g_isDragging = FALSE;
                 ReleaseCapture();
-                SendMessageW(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+                RECT r;
+                GetWindowRect(hWnd, &r);
+                save_config(r.left, r.top, g_locked, g_minimized);
             }
             return 0;
         }
@@ -225,9 +290,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (lParam == WM_RBUTTONUP) {
                 show_tray_menu(hWnd);
             } else if (lParam == WM_LBUTTONDBLCLK) {
-                set_window_minimized(hWnd, !g_minimized);
+                toggle_window_minimized(hWnd);
             } else if (lParam == WM_LBUTTONUP) {
-                set_window_locked(hWnd, !g_locked);
+                toggle_window_locked(hWnd);
             }
             return 0;
         }
@@ -235,10 +300,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
                 case IDM_TOGGLE_LOCK:
-                    set_window_locked(hWnd, !g_locked);
+                    toggle_window_locked(hWnd);
                     break;
                 case IDM_TOGGLE_SIZE:
-                    set_window_minimized(hWnd, !g_minimized);
+                    toggle_window_minimized(hWnd);
                     break;
                 case IDM_RESET_POS: {
                     int w = g_minimized ? HUD_MINI_WIDTH : HUD_WIDTH;
@@ -263,6 +328,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_SHIFT_F9);
             UnregisterHotKey(hWnd, ID_HOTKEY_F8);
             UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_F8);
+            if (g_hHook) {
+                UnhookWindowsHookEx(g_hHook);
+                g_hHook = NULL;
+            }
             if (fn_Shell_NotifyIconW) {
                 fn_Shell_NotifyIconW(NIM_DELETE, &g_nid);
             }
@@ -356,6 +425,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterHotKey(g_hWnd, ID_HOTKEY_F8, 0, VK_F8);
     RegisterHotKey(g_hWnd, ID_HOTKEY_CTRL_F8, MOD_CONTROL, VK_F8);
+
+    // Gancho de teclado de baixo nível (garante que F9/F8 funcionem mesmo que outro app capture RegisterHotKey ou dentro do jogo)
+    g_hHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, hInstance, 0);
 
     // Registra ícone na bandeja do sistema
     if (fn_Shell_NotifyIconW) {
