@@ -9,6 +9,7 @@
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TIMER_TICK           1
+#define ID_HOTKEY_F9            9
 #define ID_HOTKEY_F10           10
 
 #define IDM_TOGGLE_CPU        201
@@ -18,6 +19,7 @@
 #define IDM_TOGGLE_PING       205
 #define IDM_TOGGLE_POWER      206
 #define IDM_TOGGLE_CLOCK      207
+#define IDM_TOGGLE_COUNTER    208
 
 #define IDM_SIZE_SMALL        210
 #define IDM_SIZE_MEDIUM       211
@@ -33,6 +35,15 @@
 
 #define IDM_TOGGLE_GHOST      230
 #define IDM_TOGGLE_AUTOFADE   231
+#define IDM_TOGGLE_AUTOGAME   232
+
+#define IDM_COUNTER_ADD       250
+#define IDM_COUNTER_SUB       251
+#define IDM_COUNTER_RESET     252
+#define IDM_COUNTER_LBL_FARM  253
+#define IDM_COUNTER_LBL_KILL  254
+#define IDM_COUNTER_LBL_BOSS  255
+#define IDM_COUNTER_LBL_RUN   256
 
 #define IDM_AUTOSTART         240
 #define IDM_RESET_POS         241
@@ -99,12 +110,16 @@ static HudConfig g_config = {
     .show_ping = TRUE,
     .show_power = TRUE,
     .show_clock = TRUE,
+    .show_counter = TRUE,
+    .counter_val = 0,
+    .counter_label_type = 0,
     .size = HUD_SIZE_SMALL,
     .orientation = HUD_ORIENT_HORIZONTAL,
     .theme = HUD_THEME_OBSIDIAN,
     .alpha = 230,
     .ghost_mode = FALSE,
-    .auto_fade = FALSE
+    .auto_fade = FALSE,
+    .auto_game_mode = FALSE
 };
 
 static HardwareMetrics g_metrics = {0};
@@ -186,6 +201,9 @@ static void load_config(HudConfig *cfg) {
     cfg->show_ping = GetPrivateProfileIntA("HUD", "show_ping", 1, g_iniPath);
     cfg->show_power = GetPrivateProfileIntA("HUD", "show_power", 1, g_iniPath);
     cfg->show_clock = GetPrivateProfileIntA("HUD", "show_clock", 1, g_iniPath);
+    cfg->show_counter = GetPrivateProfileIntA("HUD", "show_counter", 1, g_iniPath);
+    cfg->counter_val = GetPrivateProfileIntA("HUD", "counter_val", 0, g_iniPath);
+    cfg->counter_label_type = GetPrivateProfileIntA("HUD", "counter_label", 0, g_iniPath);
     
     cfg->size = (HudSize)GetPrivateProfileIntA("HUD", "size", HUD_SIZE_SMALL, g_iniPath);
     if (cfg->size < 0 || cfg->size > 2) cfg->size = HUD_SIZE_SMALL;
@@ -202,6 +220,7 @@ static void load_config(HudConfig *cfg) {
 
     cfg->ghost_mode = GetPrivateProfileIntA("HUD", "ghost_mode", 0, g_iniPath);
     cfg->auto_fade = GetPrivateProfileIntA("HUD", "auto_fade", 0, g_iniPath);
+    cfg->auto_game_mode = GetPrivateProfileIntA("HUD", "auto_game_mode", 0, g_iniPath);
 }
 
 static void save_config(const HudConfig *cfg, int x, int y) {
@@ -224,6 +243,12 @@ static void save_config(const HudConfig *cfg, int x, int y) {
     WritePrivateProfileStringA("HUD", "show_power", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->show_clock ? 1 : 0);
     WritePrivateProfileStringA("HUD", "show_clock", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_counter ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_counter", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->counter_val);
+    WritePrivateProfileStringA("HUD", "counter_val", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->counter_label_type);
+    WritePrivateProfileStringA("HUD", "counter_label", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->size);
     WritePrivateProfileStringA("HUD", "size", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->orientation);
@@ -236,6 +261,8 @@ static void save_config(const HudConfig *cfg, int x, int y) {
     WritePrivateProfileStringA("HUD", "ghost_mode", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->auto_fade ? 1 : 0);
     WritePrivateProfileStringA("HUD", "auto_fade", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->auto_game_mode ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "auto_game_mode", buf, g_iniPath);
 }
 
 static void update_tray_tip(void) {
@@ -243,6 +270,34 @@ static void update_tray_tip(void) {
         wcscpy(g_nid.szTip, L"GhostHUD - Monitor Gamer");
         fn_Shell_NotifyIconW(NIM_MODIFY, &g_nid);
     }
+}
+
+static BOOL is_game_active(void) {
+    HWND fg = GetForegroundWindow();
+    if (!fg || fg == g_hWnd) return TRUE;
+
+    RECT rFg;
+    if (GetWindowRect(fg, &rFg)) {
+        HMONITOR hMon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = { sizeof(MONITORINFO) };
+        if (GetMonitorInfoA(hMon, &mi)) {
+            if (rFg.left <= mi.rcMonitor.left + 15 &&
+                rFg.top <= mi.rcMonitor.top + 15 &&
+                rFg.right >= mi.rcMonitor.right - 15 &&
+                rFg.bottom >= mi.rcMonitor.bottom - 15) {
+                
+                char className[64] = {0};
+                GetClassNameA(fg, className, sizeof(className));
+                if (strcmp(className, "Progman") != 0 && 
+                    strcmp(className, "WorkerW") != 0 &&
+                    strcmp(className, "Shell_TrayWnd") != 0 &&
+                    strcmp(className, "Shell_SecondaryTrayWnd") != 0) {
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
 }
 
 static void apply_layout_and_save(HWND hWnd) {
@@ -283,24 +338,37 @@ static void show_settings_menu(HWND hWnd) {
     AppendMenuW(hModSub, MF_STRING | (g_config.show_ram ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_RAM, L"RAM");
     AppendMenuW(hModSub, MF_STRING | (g_config.show_ping ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_PING, L"Ping (Lat\u00EAncia)");
     AppendMenuW(hModSub, MF_STRING | (g_config.show_power ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_POWER, L"Consumo GPU (Watts / TDP)");
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_counter ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_COUNTER, L"Contador de Farm / Kills");
     AppendMenuW(hModSub, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hModSub, MF_STRING | (g_config.show_clock ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_CLOCK, L"Rel\u00F3gio");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hModSub, L"M\u00F3dulos Vis\u00EDveis");
 
-    // 2. Tamanho do HUD
+    // 2. Contador de Farm
+    HMENU hCounterSub = CreatePopupMenu();
+    AppendMenuW(hCounterSub, MF_STRING, IDM_COUNTER_ADD, L"Adicionar (+1) [F9]");
+    AppendMenuW(hCounterSub, MF_STRING, IDM_COUNTER_SUB, L"Subtrair (-1)");
+    AppendMenuW(hCounterSub, MF_STRING, IDM_COUNTER_RESET, L"Zerar Contador (0)");
+    AppendMenuW(hCounterSub, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(hCounterSub, MF_STRING | (g_config.counter_label_type == 0 ? MF_CHECKED : MF_UNCHECKED), IDM_COUNTER_LBL_FARM, L"R\u00F3tulo: FARM");
+    AppendMenuW(hCounterSub, MF_STRING | (g_config.counter_label_type == 1 ? MF_CHECKED : MF_UNCHECKED), IDM_COUNTER_LBL_KILL, L"R\u00F3tulo: KILLS");
+    AppendMenuW(hCounterSub, MF_STRING | (g_config.counter_label_type == 2 ? MF_CHECKED : MF_UNCHECKED), IDM_COUNTER_LBL_BOSS, L"R\u00F3tulo: BOSS");
+    AppendMenuW(hCounterSub, MF_STRING | (g_config.counter_label_type == 3 ? MF_CHECKED : MF_UNCHECKED), IDM_COUNTER_LBL_RUN, L"R\u00F3tulo: RUNS");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hCounterSub, L"Contador de Farm / Kills");
+
+    // 3. Tamanho do HUD
     HMENU hSizeSub = CreatePopupMenu();
     AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_SMALL ? MF_CHECKED : MF_UNCHECKED), IDM_SIZE_SMALL, L"Pequeno (Compacto)");
     AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_MEDIUM ? MF_CHECKED : MF_UNCHECKED), IDM_SIZE_MEDIUM, L"M\u00E9dio");
     AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_LARGE ? MF_CHECKED : MF_UNCHECKED), IDM_SIZE_LARGE, L"Grande");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSizeSub, L"Tamanho do HUD");
 
-    // 3. Orientação
+    // 4. Orientação
     HMENU hOrientSub = CreatePopupMenu();
     AppendMenuW(hOrientSub, MF_STRING | (g_config.orientation == HUD_ORIENT_HORIZONTAL ? MF_CHECKED : MF_UNCHECKED), IDM_ORIENT_HORIZ, L"Horizontal (Barra)");
     AppendMenuW(hOrientSub, MF_STRING | (g_config.orientation == HUD_ORIENT_VERTICAL ? MF_CHECKED : MF_UNCHECKED), IDM_ORIENT_VERT, L"Vertical (Coluna Lateral)");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hOrientSub, L"Orienta\u00E7\u00E3o");
 
-    // 4. Temas Visuais MMORPG
+    // 5. Temas Visuais MMORPG
     HMENU hThemeSub = CreatePopupMenu();
     AppendMenuW(hThemeSub, MF_STRING | (g_config.theme == HUD_THEME_OBSIDIAN ? MF_CHECKED : MF_UNCHECKED), IDM_THEME_OBSIDIAN, L"Obsidian Slate (Cl\u00E1ssico)");
     AppendMenuW(hThemeSub, MF_STRING | (g_config.theme == HUD_THEME_BLOODMOON ? MF_CHECKED : MF_UNCHECKED), IDM_THEME_BLOODMOON, L"Blood Moon (Carmesim)");
@@ -310,9 +378,10 @@ static void show_settings_menu(HWND hWnd) {
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
 
-    // 5. Recursos Gamer
+    // 6. Recursos Gamer
     AppendMenuW(hMenu, MF_STRING | (g_config.ghost_mode ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_GHOST, L"Modo Fantasma (Cliques Atravessam) [F10]");
     AppendMenuW(hMenu, MF_STRING | (g_config.auto_fade ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_AUTOFADE, L"Auto-Fade (Esmaecer fora de foco)");
+    AppendMenuW(hMenu, MF_STRING | (g_config.auto_game_mode ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_AUTOGAME, L"Modo Auto-Game (Exibir apenas durante Jogos)");
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING | (is_autostart_enabled() ? MF_CHECKED : MF_UNCHECKED), IDM_AUTOSTART, L"Iniciar com o Windows");
@@ -332,6 +401,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ui_init();
             hardware_update(&g_metrics);
             SetTimer(hWnd, ID_TIMER_TICK, 1000, NULL);
+            RegisterHotKey(hWnd, ID_HOTKEY_F9, 0, VK_F9);
             RegisterHotKey(hWnd, ID_HOTKEY_F10, 0, VK_F10);
             return 0;
         }
@@ -339,6 +409,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_HOTKEY: {
             if (wParam == ID_HOTKEY_F10) {
                 g_config.ghost_mode = !g_config.ghost_mode;
+                apply_layout_and_save(hWnd);
+            } else if (wParam == ID_HOTKEY_F9) {
+                g_config.counter_val++;
                 apply_layout_and_save(hWnd);
             }
             return 0;
@@ -361,7 +434,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             int cur_w, cur_h, cur_header_h;
             ui_get_window_size(&g_config, &cur_w, &cur_h, &cur_header_h);
 
-            if (UI_IS_GEAR_BTN(pt.x, pt.y, win_w, cur_header_h)) {
+            if (UI_IS_GEAR_BTN(pt.x, pt.y, win_w, cur_header_h) ||
+                ui_hit_test_counter(pt.x, pt.y, win_w, cur_h, &g_config)) {
                 SetCursor(LoadCursor(NULL, IDC_HAND));
             } else {
                 SetCursor(LoadCursor(NULL, IDC_ARROW));
@@ -392,6 +466,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_TIMER: {
             if (wParam == ID_TIMER_TICK) {
                 hardware_update(&g_metrics);
+
+                // Modo Auto-Game: Oculta fora de jogos e exibe em jogos
+                if (g_config.auto_game_mode) {
+                    BOOL in_game = is_game_active();
+                    if (in_game) {
+                        if (!IsWindowVisible(hWnd)) ShowWindow(hWnd, SW_SHOWNA);
+                    } else {
+                        if (IsWindowVisible(hWnd)) ShowWindow(hWnd, SW_HIDE);
+                    }
+                } else {
+                    if (!IsWindowVisible(hWnd)) ShowWindow(hWnd, SW_SHOWNA);
+                }
 
                 // Alerta Sonoro Crítico se GPU bater 85°C
                 if (g_metrics.gpu_temp >= 85) {
@@ -453,6 +539,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // Clique na Engrenagem [⚙]
             if (UI_IS_GEAR_BTN(mouseX, mouseY, win_w, cur_header_h)) {
                 show_settings_menu(hWnd);
+                return 0;
+            }
+
+            // Clique no slot do Contador de Farm (+1 direto)
+            if (ui_hit_test_counter(mouseX, mouseY, win_w, cur_h, &g_config)) {
+                g_config.counter_val++;
+                apply_layout_and_save(hWnd);
                 return 0;
             }
 
@@ -551,8 +644,41 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     g_config.show_power = !g_config.show_power;
                     apply_layout_and_save(hWnd);
                     break;
+                case IDM_TOGGLE_COUNTER:
+                    g_config.show_counter = !g_config.show_counter;
+                    apply_layout_and_save(hWnd);
+                    break;
                 case IDM_TOGGLE_CLOCK:
                     g_config.show_clock = !g_config.show_clock;
+                    apply_layout_and_save(hWnd);
+                    break;
+
+                case IDM_COUNTER_ADD:
+                    g_config.counter_val++;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_COUNTER_SUB:
+                    if (g_config.counter_val > 0) g_config.counter_val--;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_COUNTER_RESET:
+                    g_config.counter_val = 0;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_COUNTER_LBL_FARM:
+                    g_config.counter_label_type = 0;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_COUNTER_LBL_KILL:
+                    g_config.counter_label_type = 1;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_COUNTER_LBL_BOSS:
+                    g_config.counter_label_type = 2;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_COUNTER_LBL_RUN:
+                    g_config.counter_label_type = 3;
                     apply_layout_and_save(hWnd);
                     break;
 
@@ -606,6 +732,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                     apply_layout_and_save(hWnd);
                     break;
+                case IDM_TOGGLE_AUTOGAME:
+                    g_config.auto_game_mode = !g_config.auto_game_mode;
+                    if (!g_config.auto_game_mode) {
+                        ShowWindow(hWnd, SW_SHOWNA);
+                    }
+                    apply_layout_and_save(hWnd);
+                    break;
 
                 case IDM_AUTOSTART:
                     toggle_autostart();
@@ -631,6 +764,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_DESTROY: {
             KillTimer(hWnd, ID_TIMER_TICK);
+            UnregisterHotKey(hWnd, ID_HOTKEY_F9);
             UnregisterHotKey(hWnd, ID_HOTKEY_F10);
             if (fn_Shell_NotifyIconW) {
                 fn_Shell_NotifyIconW(NIM_DELETE, &g_nid);
