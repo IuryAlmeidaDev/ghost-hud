@@ -99,8 +99,22 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
     SetBkMode(memDC, TRANSPARENT);
     SelectObject(memDC, hFontTitle);
     SetTextColor(memDC, COLOR_TITLE);
-    RECT rTitle = { 6, 2, width - 6, 17 };
-    DrawTextA(memDC, locked ? "HUD [F8]" : "ARRASTAR", -1, &rTitle, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+    // Título à esquerda
+    RECT rTitle = { 6, 2, width - 20, 17 };
+    DrawTextA(memDC, locked ? "HUD" : "MOVER", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+    // Botão discreto [+] de maximizar no canto superior direito
+    int btn_x = width - 18;
+    int btn_y = 3;
+    HPEN hPenPlus = CreatePen(PS_SOLID, 2, locked ? COLOR_TITLE : COLOR_CYAN);
+    HPEN oldPenBtn = (HPEN)SelectObject(memDC, hPenPlus);
+    MoveToEx(memDC, btn_x + 2, btn_y + 5, NULL);
+    LineTo(memDC, btn_x + 11, btn_y + 5);
+    MoveToEx(memDC, btn_x + 6, btn_y + 1, NULL);
+    LineTo(memDC, btn_x + 6, btn_y + 10);
+    SelectObject(memDC, oldPenBtn);
+    DeleteObject(hPenPlus);
 
     // Linha divisória horizontal do cabeçalho
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
@@ -170,16 +184,26 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
 
     // Título e ícone à esquerda
     SetTextColor(memDC, COLOR_TITLE);
-    RECT rTitle = { 10, 2, 150, 19 };
+    RECT rTitle = { 10, 2, 140, 19 };
     DrawTextA(memDC, "GHOST HUD  \x95  DESEMPENHO", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    // Indicadores e atalhos à direita no cabeçalho
-    RECT rControls = { width - 165, 2, width - 8, 19 };
+    // Botão discreto [-] de minimizar no canto superior direito
+    int btn_x = width - 22;
+    int btn_y = 3;
+    HPEN hPenMinus = CreatePen(PS_SOLID, 2, locked ? COLOR_TITLE : COLOR_CYAN);
+    HPEN oldPenBtn = (HPEN)SelectObject(memDC, hPenMinus);
+    MoveToEx(memDC, btn_x + 3, btn_y + 6, NULL);
+    LineTo(memDC, btn_x + 13, btn_y + 6);
+    SelectObject(memDC, oldPenBtn);
+    DeleteObject(hPenMinus);
+
+    // Indicadores e atalhos à direita no cabeçalho (ao lado do botão -)
+    RECT rControls = { width - 210, 2, btn_x - 4, 19 };
     SetTextColor(memDC, locked ? COLOR_LABEL : COLOR_CYAN);
     if (locked) {
-        DrawTextA(memDC, "[JOGO] F9:MOVER  F8:MINI", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+        DrawTextA(memDC, "[MODO JOGO] F9: MOVER", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
     } else {
-        DrawTextA(memDC, "[AJUSTE: ARRASTE] F9:FIXAR", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+        DrawTextA(memDC, "[AJUSTE: ARRASTE]", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
     }
 
     // Linha divisória horizontal separando o cabeçalho do conteúdo

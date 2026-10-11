@@ -60,7 +60,6 @@ static HardwareMetrics g_metrics = {0};
 static NOTIFYICONDATAW g_nid = {0};
 static char g_iniPath[MAX_PATH] = {0};
 
-static HHOOK g_hHook = NULL;
 static DWORD g_lastToggleLockTime = 0;
 static DWORD g_lastToggleSizeTime = 0;
 
@@ -153,16 +152,35 @@ static void toggle_window_minimized(HWND hWnd) {
     set_window_minimized(hWnd, !g_minimized);
 }
 
-static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
-        KBDLLHOOKSTRUCT *p = (KBDLLHOOKSTRUCT *)lParam;
-        if (p->vkCode == VK_F9) {
-            PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_LOCK, 0);
-        } else if (p->vkCode == VK_F8) {
-            PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_SIZE, 0);
+static volatile BOOL g_hotkeyRunning = TRUE;
+static HANDLE g_hHotkeyThread = NULL;
+
+static DWORD WINAPI HotkeyThread(LPVOID lpParam) {
+    BOOL f9_prev = FALSE;
+    BOOL f8_prev = FALSE;
+
+    while (g_hotkeyRunning) {
+        SHORT f9_state = GetAsyncKeyState(VK_F9);
+        BOOL f9_down = (f9_state & 0x8000) != 0;
+        if (f9_down && !f9_prev) {
+            if (g_hWnd) {
+                PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_LOCK, 0);
+            }
         }
+        f9_prev = f9_down;
+
+        SHORT f8_state = GetAsyncKeyState(VK_F8);
+        BOOL f8_down = (f8_state & 0x8000) != 0;
+        if (f8_down && !f8_prev) {
+            if (g_hWnd) {
+                PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_SIZE, 0);
+            }
+        }
+        f8_prev = f8_down;
+
+        Sleep(25);
     }
-    return CallNextHookEx(g_hHook, nCode, wParam, lParam);
+    return 0;
 }
 
 static void show_tray_menu(HWND hWnd) {
@@ -203,7 +221,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_SETCURSOR: {
             if (!g_locked) {
-                SetCursor(LoadCursor(NULL, IDC_SIZEALL));
+                POINT pt;
+                GetCursorPos(&pt);
+                ScreenToClient(hWnd, &pt);
+                if (UI_IS_TOGGLE_BTN(pt.x, pt.y, g_minimized)) {
+                    SetCursor(LoadCursor(NULL, IDC_HAND));
+                } else {
+                    SetCursor(LoadCursor(NULL, IDC_SIZEALL));
+                }
                 return TRUE;
             }
             return DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -246,6 +271,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Sistema de arraste direto via SetCapture (100% infalível em qualquer versão do Windows)
         case WM_LBUTTONDOWN: {
             if (!g_locked) {
+                int mouseX = (short)LOWORD(lParam);
+                int mouseY = (short)HIWORD(lParam);
+
+                // Clique no botão discreto [-] ou [+]
+                if (UI_IS_TOGGLE_BTN(mouseX, mouseY, g_minimized)) {
+                    toggle_window_minimized(hWnd);
+                    return 0;
+                }
+
                 g_isDragging = TRUE;
                 SetCapture(hWnd);
                 GetCursorPos(&g_dragStartMouse);
@@ -323,15 +357,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_DESTROY: {
             KillTimer(hWnd, ID_TIMER_TICK);
+            g_hotkeyRunning = FALSE;
+            if (g_hHotkeyThread) {
+                WaitForSingleObject(g_hHotkeyThread, 150);
+                CloseHandle(g_hHotkeyThread);
+                g_hHotkeyThread = NULL;
+            }
             UnregisterHotKey(hWnd, ID_HOTKEY_F9);
             UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_F9);
             UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_SHIFT_F9);
             UnregisterHotKey(hWnd, ID_HOTKEY_F8);
             UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_F8);
-            if (g_hHook) {
-                UnhookWindowsHookEx(g_hHook);
-                g_hHook = NULL;
-            }
             if (fn_Shell_NotifyIconW) {
                 fn_Shell_NotifyIconW(NIM_DELETE, &g_nid);
             }
@@ -426,8 +462,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     RegisterHotKey(g_hWnd, ID_HOTKEY_F8, 0, VK_F8);
     RegisterHotKey(g_hWnd, ID_HOTKEY_CTRL_F8, MOD_CONTROL, VK_F8);
 
-    // Gancho de teclado de baixo nível (garante que F9/F8 funcionem mesmo que outro app capture RegisterHotKey ou dentro do jogo)
-    g_hHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, hInstance, 0);
+    // Thread em segundo plano para monitorar GetAsyncKeyState (F9 e F8 funcionam com o app em segundo plano e dentro de jogos)
+    g_hotkeyRunning = TRUE;
+    g_hHotkeyThread = CreateThread(NULL, 0, HotkeyThread, NULL, 0, NULL);
 
     // Registra ícone na bandeja do sistema
     if (fn_Shell_NotifyIconW) {
