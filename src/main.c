@@ -673,9 +673,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         fn_Shell_NotifyIconW = (pfn_Shell_NotifyIconW)GetProcAddress(hShell32, "Shell_NotifyIconW");
     }
 
-    // Carrega ícone oficial GhostHUD
-    g_hIconLarge = (HICON)LoadImageA(NULL, g_icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
-    g_hIconSmall = (HICON)LoadImageA(NULL, g_icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+    // Carrega ícone oficial GhostHUD (embutido no .exe ou de arquivo)
+    g_hIconLarge = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    g_hIconSmall = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    if (!g_hIconLarge) {
+        g_hIconLarge = (HICON)LoadImageA(NULL, g_icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+    }
+    if (!g_hIconSmall) {
+        g_hIconSmall = (HICON)LoadImageA(NULL, g_icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+    }
     if (!g_hIconLarge) g_hIconLarge = LoadIcon(NULL, IDI_APPLICATION);
     if (!g_hIconSmall) g_hIconSmall = LoadIcon(NULL, IDI_APPLICATION);
 

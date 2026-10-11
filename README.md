@@ -2,74 +2,110 @@
 
 <div align="center">
 
-![Language](https://img.shields.io/badge/Language-Pure%20C%20(C99%2FC11)-00599C?style=for-the-badge&logo=c)
-![Size](https://img.shields.io/badge/Binary%20Size-20%20KB-success?style=for-the-badge)
-![RAM](https://img.shields.io/badge/RAM%20Usage-~2%20MB-brightgreen?style=for-the-badge)
+![Language](https://img.shields.io/badge/Language-Pure%20C%20(C99)-00599C?style=for-the-badge&logo=c)
+![Binary Size](https://img.shields.io/badge/Binary%20Size-~40%20KB-success?style=for-the-badge)
+![RAM](https://img.shields.io/badge/RAM%20Usage-~2.5%20MB-brightgreen?style=for-the-badge)
 ![CPU](https://img.shields.io/badge/CPU%20Usage-0.0%25-brightgreen?style=for-the-badge)
+![GPU Vendors](https://img.shields.io/badge/GPUs-NVIDIA%20%7C%20AMD-76B900?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/OS-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows)
 ![Anti-Cheat Safe](https://img.shields.io/badge/Anti--Cheat-100%25%20Safe-brightgreen?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
-**Monitor de desempenho de hardware ultra-otimizado em C puro para Windows. Desenhado para gamers que exigem zero sobrecarga no sistema e visual discreto sobreposto a qualquer jogo.**
+**Overlay de monitoramento de hardware gamer ultra-leve, modular e elegante para Windows. Inspirado na estética obsidian de interfaces clássicas de MMORPGs.**
 
 </div>
 
 ---
 
+## 🌟 O que é o GhostHUD?
+
+O **GhostHUD** foi desenvolvido em **C puro (Win32 API)** com uma única premissa: **zero impacto de desempenho (0.0% de CPU)** e **zero bloatware**. 
+
+Diferente de softwares pesados como MSI Afterburner ou GeForce Experience, o GhostHUD é um executável único e portátil de apenas **~40 KB**, sem Electron, sem .NET e sem instalador obrigatório. Ele roda instantaneamente em qualquer máquina Windows 10 ou 11.
+
+---
+
 ## ⚡ Recursos Principais
 
-- 🪶 **Tamanho de Apenas 20 KB:** O executável completo tem apenas **20 Kilobytes**, sem nenhuma dependência externa ou runtime.
-- 💾 **Memória Irrisória (~2 MB de RAM):** Consome menos memória do que um único processo do Bloco de Notas.
-- ⏱️ **0.0% de CPU:** Código C nativo rodando diretamente no loop de eventos do Windows com temporizador de precisão.
-- 🎯 **Modo Click-Through Real (F9):**
-  - 🔓 **Modo Ajuste:** Borda ciano. Clique e arraste o HUD com o mouse para onde preferir na tela.
-  - 🔒 **Modo Jogo (Click-Through):** O mouse passa **100% através do HUD** direto para o jogo (miras, tiros e cliques nunca são perdidos).
-- 📦 **Modo Minimizar / Maximizar (F8):**
-  - **Normal / Maximizado (`320px x 56px`):** Cápsula completa com CPU %, GPU % e Temp, RAM % e micro barras dinâmicas de carga.
-  - **Minimizado / Quadradinho (`64px x 56px`):** Um quadradinho minúsculo e ultra-discreto exibindo `C`, `G` e `R` condensados.
-  - **Alternância Instantânea:** Pressione **`F8`**, dê um **duplo clique no widget** (no modo ajuste) ou selecione no menu do relógio!
-- 🎨 **Escala Térmica e de Carga Progressiva em 4 Estágios:**
-  - 🟢 **Verde (<55%):** Normal / Carga baixa
-  - 🟡 **Amarelo (55% a 71%):** Carga moderada
-  - 🟠 **Laranja (72% a 84%):** Carga elevada / Aquecendo
-  - 🔴 **Vermelho Crítico (≥85% ou 90%+):** Alerta máximo de saturação ou superaquecimento!
-- 🛡️ **Anti-Cheat Safe (100% Seguro):** Zero injeção de DLL. Utiliza os estilos estendidos oficiais do Windows (`WS_EX_TRANSPARENT`). Seguro no Vanguard, Easy Anti-Cheat, BattlEye e Ricochet.
-- 🔔 **Bandeja do Sistema (Tray Icon):** Menu de clique direito perto do relógio para alternar modos, trocar tamanho, resetar posição e sair.
+### 📊 Monitoramento de Hardware Completo
+- **CPU:** Uso percentual (%) calculado via `GetSystemTimes` do kernel do Windows.
+- **GPU (NVIDIA & AMD):** Uso (%) e Temperatura (°C) em tempo real.
+- **VRAM Dedicada:** Consumo percentual e em Gigabytes da memória de vídeo.
+- **RAM do Sistema:** Uso percentual e memória utilizada/total via `GlobalMemoryStatusEx`.
+- **Ping de Rede (ms):** Latência real medida assincronamente via ICMP em thread de background (sem travar a interface).
+- **Consumo de Energia (PWR):** Medição do TDP real puxado pela placa de vídeo em **Watts**.
+- **Relógio In-Game:** Hora atual integrada discretamente na barra de título.
+
+### 🎮 Suporte Multi-Vendor (NVIDIA & AMD Radeon)
+- **NVIDIA:** Integração nativa com a biblioteca oficial **NVML** (`nvml.dll`).
+- **AMD Radeon:** Integração nativa com a biblioteca **AMD Display Library (ADL)** (`atiadlxx.dll`).
+- Carregamento 100% dinâmico: se o PC não tiver GPU dedicada, o app abre sem erros e continua monitorando CPU, RAM e Rede.
+
+### ⚙️ Totalmente Modular (Menu da Engrenagem)
+- Clique no ícone de **Engrenagem [⚙]** no canto superior direito para ativar ou desativar qualquer métrica individualmente.
+- **Redimensionamento Inteligente:** A janela recalcula sua largura e redistribui os slots automaticamente, sem deixar espaços vazios.
+
+### 🎨 4 Temas Visuais MMORPG
+- 🌑 **Obsidian Slate (Padrão):** Ardósia e carvão escuro inspirado em interfaces clássicas de fantasia.
+- 🩸 **Blood Moon (Carmesim):** Tons góticos de vinho e vermelho escuro.
+- ⚡ **Cyber Neon (Ciano / Roxo):** Preto profundo com detalhes em ciano elétrico.
+- 👑 **Royal Gold (Ouro Metálico):** Fundo ônix com acabamento em ouro nobre.
+
+### 📐 Modos de Exibição
+- **3 Escalas de Tamanho:** `Pequeno (Compacto)`, `Médio` e `Grande`.
+- **2 Orientações:** 
+  - **Horizontal:** Barra superior/inferior.
+  - **Vertical:** Coluna lateral, ideal para fixar no canto do monitor como status bar de RPG.
+
+### 🧲 Ergonomia Gamer Avançada
+- **Snap Magnético nas Bordas:** Ao arrastar para perto do canto do monitor, o HUD "gruda" suavemente a 8px da borda para alinhamento milimétrico.
+- **Modo Fantasma / Click-Through (`F10`):** Torna o HUD transparente aos cliques do mouse (`WS_EX_TRANSPARENT`). Suas miras, habilidades e cliques passam direto para o jogo.
+- **Ajuste de Opacidade no Scroll:** Role a rodinha do mouse sobre o HUD para dosar a transparência (de 40% a 100%).
+- **Auto-Fade:** O HUD esmaece para 30% quando o cursor está longe e acende ao se aproximar.
+- **Alerta Térmico Crítico:** Se a GPU atingir 82°C+, a borda ganha contorno carmesim; a partir de 85°C, emite um bipe sutil de aviso sonoro.
+- **Iniciar com o Windows:** Alternância direta no menu para inicialização com o sistema no registro do usuário.
 
 ---
 
-## 🖥️ Métricas Monitoradas
+## 🕹️ Tabela de Controles e Atalhos
 
-| Componente | Métrica | Implementação em C |
-| :--- | :--- | :--- |
-| **GPU** | Uso (%) e Temperatura (°C) | NVIDIA NVML (`nvml.dll` carregada dinamicamente) |
-| **CPU** | Uso Percentual (%) | `GetSystemTimes` (Win32 Kernel API nativa) |
-| **RAM** | Uso Percentual (%) | `GlobalMemoryStatusEx` (Win32 Kernel API nativa) |
-
----
-
-## ⌨️ Atalhos e Controles
-
-- **`F9`**: Alterna entre **Modo Jogo** (cliques passam direto) e **Modo Ajuste** (arrastar com o mouse).
-- **`F8`**: Alterna entre **Modo Maximizado** (cápsula completa) e **Modo Minimizado** (quadradinho compacto).
-- **Duplo Clique no Widget**: Alterna entre Minimizar e Maximizar (quando destravado).
-- **Clique Direito no Ícone da Bandeja**: Menu completo de controle.
+| Ação | Como Utilizar |
+| :--- | :--- |
+| **Mover o HUD** | Clique com botão esquerdo e arraste (com alinhamento magnético) |
+| **Menu de Configurações** | Clique na **Engrenagem [⚙]**, botão direito no HUD ou ícone da bandeja |
+| **Alternar Modo Fantasma** | Tecla **`F10`** (ou no menu) |
+| **Regular Transparência** | Role a rodinha do mouse (**Scroll**) sobre o HUD |
+| **Minimizar para Bandeja** | O ícone permanece ativo perto do relógio do Windows |
 
 ---
 
-## 🔨 Como Compilar do Código Fonte
+## 🛠️ Como Compilar
 
-Você pode compilar com 1 clique usando o script incluído:
-```cmd
-build.bat
+O projeto pode ser compilado com qualquer compilador C compatível com Win32. 
+
+Recomendamos o **Tiny C Compiler (TCC)** para compilação instantânea (< 0.5 segundo) gerando um binário ultra-compacto:
+
+```powershell
+# 1. Compilação do executável com TCC
+tcc src/main.c src/hardware.c src/ui.c -o GhostHUD.exe -lgdi32 -luser32 -lkernel32
+
+# 2. Embutir o ícone multi-resolução diretamente no executável
+python tools_inject_icon.py
 ```
 
-Ou usando qualquer compilador C:
-```cmd
+*Ou usando o GCC / MinGW:*
+```powershell
 gcc -O3 src/main.c src/hardware.c src/ui.c -o GhostHUD.exe -lgdi32 -luser32 -lkernel32 -mwindows
 ```
 
 ---
 
+## 🛡️ Segurança Anti-Cheat
+
+O GhostHUD **não realiza injeção de DLL**, **não intercepta chamadas do DirectX/Vulkan** e não modifica a memória de nenhum processo. Ele opera puramente através das APIs oficiais do Windows Desktop (`WS_EX_LAYERED`, `WS_EX_TRANSPARENT`), sendo **100% seguro** contra qualquer sistema anti-cheat (Vanguard, Easy Anti-Cheat, BattlEye, Ricochet, etc.).
+
+---
+
 ## 📄 Licença
 
-Distribuído sob a licença MIT.
+Distribuído sob a licença [MIT](LICENSE). Desenvolvido por [Iury Almeida](https://github.com/IuryAlmeidaDev).

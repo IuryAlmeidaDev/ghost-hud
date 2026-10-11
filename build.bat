@@ -14,6 +14,8 @@ if exist "%TCC_BIN%" (
 )
 
 if %ERRORLEVEL% equ 0 (
+    echo [OK] Embutindo icone oficial no executavel...
+    python tools_inject_icon.py >nul 2>&1
     echo.
     echo [SUCESSO] GhostHUD.exe compilado com exito!
     dir GhostHUD.exe | findstr GhostHUD.exe

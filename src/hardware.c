@@ -1,6 +1,8 @@
 #include "hardware.h"
 #include "nvml_lite.h"
+#include "adl_lite.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 // Ponteiros dinâmicos para kernel32
 typedef BOOL (WINAPI *pfn_GetSystemTimes)(LPFILETIME, LPFILETIME, LPFILETIME);
@@ -26,6 +28,22 @@ static pfn_nvmlDeviceGetTemperature fn_nvmlDeviceGetTemperature = NULL;
 static pfn_nvmlDeviceGetMemoryInfo fn_nvmlDeviceGetMemoryInfo = NULL;
 static pfn_nvmlDeviceGetPowerUsage fn_nvmlDeviceGetPowerUsage = NULL;
 static BOOL nvml_ready = FALSE;
+
+// Estado dinâmico do AMD ADL (Radeon)
+static HMODULE hAdl = NULL;
+static pfn_ADL_Main_Control_Create fn_ADL_Main_Control_Create = NULL;
+static pfn_ADL_Main_Control_Destroy fn_ADL_Main_Control_Destroy = NULL;
+static pfn_ADL_Adapter_NumberOfAdapters_Get fn_ADL_Adapter_NumberOfAdapters_Get = NULL;
+static pfn_ADL_Adapter_AdapterInfo_Get fn_ADL_Adapter_AdapterInfo_Get = NULL;
+static pfn_ADL_Overdrive5_Temperature_Get fn_ADL_Overdrive5_Temperature_Get = NULL;
+static pfn_ADL_Overdrive5_CurrentActivity_Get fn_ADL_Overdrive5_CurrentActivity_Get = NULL;
+static pfn_ADL_Overdrive6_CurrentPower_Get fn_ADL_Overdrive6_CurrentPower_Get = NULL;
+static BOOL adl_ready = FALSE;
+static int amd_adapter_index = -1;
+
+static void* __cdecl ADL_Main_Memory_Alloc(int iSize) {
+    return malloc(iSize);
+}
 
 // Estruturas e ponteiros dinâmicos para ICMP (Ping de Rede)
 typedef struct {
@@ -60,49 +78,59 @@ static volatile int g_currentPing = 0;
 static DWORD WINAPI PingBackgroundThread(LPVOID lpParam) {
     if (!fn_IcmpCreateFile || !fn_IcmpSendEcho || !fn_IcmpCloseHandle) return 0;
 
-    HANDLE hFile = fn_IcmpCreateFile();
-    if (hFile == INVALID_HANDLE_VALUE) return 0;
+    HANDLE hIcmpFile = fn_IcmpCreateFile();
+    if (hIcmpFile == INVALID_HANDLE_VALUE) return 0;
 
-    char sendData[32] = "GHOSTHUD_PING";
-    char replyBuf[sizeof(ICMP_ECHO_REPLY) + 64];
+    char sendData[32] = "GhostHUD_LatencyCheck";
+    DWORD replySize = sizeof(ICMP_ECHO_REPLY) + sizeof(sendData) + 64;
+    LPVOID replyBuffer = malloc(replySize);
 
-    // 1.1.1.1 (Cloudflare DNS - menor latência global) em ordem de bytes de rede
-    unsigned long targetIp = 0x01010101; 
+    // IP 1.1.1.1 (Cloudflare DNS rápido para medir latência sem bloqueios de firewall)
+    unsigned long ip = 0x01010101; 
 
     while (g_pingRunning) {
-        DWORD replies = fn_IcmpSendEcho(hFile, targetIp, sendData, (WORD)sizeof(sendData), 
-                                        NULL, replyBuf, (DWORD)sizeof(replyBuf), 800);
-        if (replies > 0) {
-            ICMP_ECHO_REPLY *reply = (ICMP_ECHO_REPLY *)replyBuf;
-            if (reply->Status == 0) {
+        if (replyBuffer) {
+            DWORD dwRet = fn_IcmpSendEcho(
+                hIcmpFile,
+                ip,
+                sendData,
+                (WORD)sizeof(sendData),
+                NULL,
+                replyBuffer,
+                replySize,
+                800 // timeout de 800ms
+            );
+
+            if (dwRet > 0) {
+                ICMP_ECHO_REPLY *reply = (ICMP_ECHO_REPLY *)replyBuffer;
                 g_currentPing = (int)reply->RoundTripTime;
+            } else {
+                g_currentPing = 0;
             }
         }
-        Sleep(1500); // Mede ping a cada 1.5s em segundo plano (0% lag na interface)
+        Sleep(1500); // mede a cada 1.5s em background
     }
 
-    fn_IcmpCloseHandle(hFile);
+    if (replyBuffer) free(replyBuffer);
+    fn_IcmpCloseHandle(hIcmpFile);
     return 0;
 }
 
 static ULONGLONG file_time_to_ull(const FILETIME *ft) {
     ULARGE_INTEGER uli;
     uli.LowPart = ft->dwLowDateTime;
-    uli.HighPart = ft->dwLowDateTime ? ft->dwHighDateTime : ft->dwHighDateTime;
-    uli.LowPart = ft->dwLowDateTime;
     uli.HighPart = ft->dwHighDateTime;
     return uli.QuadPart;
 }
 
 void hardware_init(void) {
-    // Carrega funções do kernel32
+    // Carregamento dinâmico de kernel32
     HMODULE hKernel = GetModuleHandleA("kernel32.dll");
     if (hKernel) {
         fn_GetSystemTimes = (pfn_GetSystemTimes)GetProcAddress(hKernel, "GetSystemTimes");
         fn_GlobalMemoryStatusEx = (pfn_GlobalMemoryStatusEx)GetProcAddress(hKernel, "GlobalMemoryStatusEx");
     }
 
-    // Calibração inicial de CPU
     if (fn_GetSystemTimes) {
         FILETIME idle, kernel, user;
         if (fn_GetSystemTimes(&idle, &kernel, &user)) {
@@ -113,7 +141,7 @@ void hardware_init(void) {
         }
     }
 
-    // Carregamento dinâmico da nvml.dll
+    // 1. Tenta carregar NVIDIA NVML
     hNvml = LoadLibraryA("nvml.dll");
     if (!hNvml) {
         hNvml = LoadLibraryA("C:\\Windows\\System32\\nvml.dll");
@@ -142,7 +170,47 @@ void hardware_init(void) {
         }
     }
 
-    // Carregamento dinâmico de ICMP para medição de Ping
+    // 2. Se não houver NVIDIA, tenta carregar AMD ADL (Radeon)
+    if (!nvml_ready) {
+        hAdl = LoadLibraryA("atiadlxx.dll");
+        if (!hAdl) {
+            hAdl = LoadLibraryA("atiadlxy.dll");
+        }
+        if (hAdl) {
+            fn_ADL_Main_Control_Create = (pfn_ADL_Main_Control_Create)GetProcAddress(hAdl, "ADL_Main_Control_Create");
+            fn_ADL_Main_Control_Destroy = (pfn_ADL_Main_Control_Destroy)GetProcAddress(hAdl, "ADL_Main_Control_Destroy");
+            fn_ADL_Adapter_NumberOfAdapters_Get = (pfn_ADL_Adapter_NumberOfAdapters_Get)GetProcAddress(hAdl, "ADL_Adapter_NumberOfAdapters_Get");
+            fn_ADL_Adapter_AdapterInfo_Get = (pfn_ADL_Adapter_AdapterInfo_Get)GetProcAddress(hAdl, "ADL_Adapter_AdapterInfo_Get");
+            fn_ADL_Overdrive5_Temperature_Get = (pfn_ADL_Overdrive5_Temperature_Get)GetProcAddress(hAdl, "ADL_Overdrive5_Temperature_Get");
+            fn_ADL_Overdrive5_CurrentActivity_Get = (pfn_ADL_Overdrive5_CurrentActivity_Get)GetProcAddress(hAdl, "ADL_Overdrive5_CurrentActivity_Get");
+            fn_ADL_Overdrive6_CurrentPower_Get = (pfn_ADL_Overdrive6_CurrentPower_Get)GetProcAddress(hAdl, "ADL_Overdrive6_CurrentPower_Get");
+
+            if (fn_ADL_Main_Control_Create && fn_ADL_Adapter_NumberOfAdapters_Get && fn_ADL_Adapter_AdapterInfo_Get) {
+                if (fn_ADL_Main_Control_Create(ADL_Main_Memory_Alloc, 1) == ADL_OK) {
+                    int numAdapters = 0;
+                    if (fn_ADL_Adapter_NumberOfAdapters_Get(&numAdapters) == ADL_OK && numAdapters > 0) {
+                        int bufSize = sizeof(ADLAdapterInfo) * numAdapters;
+                        ADLAdapterInfo *info = (ADLAdapterInfo *)malloc(bufSize);
+                        if (info) {
+                            memset(info, 0, bufSize);
+                            if (fn_ADL_Adapter_AdapterInfo_Get(info, bufSize) == ADL_OK) {
+                                for (int i = 0; i < numAdapters; i++) {
+                                    if (info[i].iPresent) {
+                                        amd_adapter_index = info[i].iAdapterIndex;
+                                        adl_ready = TRUE;
+                                        break;
+                                    }
+                                }
+                            }
+                            free(info);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Carregamento dinâmico de ICMP para medição de Ping
     hIcmp = LoadLibraryA("icmp.dll");
     if (!hIcmp) {
         hIcmp = LoadLibraryA("iphlpapi.dll");
@@ -219,8 +287,9 @@ void hardware_update(HardwareMetrics *out) {
         out->ram_used_mb = (int)((ms.dwTotalPhys - ms.dwAvailPhys) / (1024 * 1024));
     }
 
-    // 3. Cálculo de GPU e VRAM via NVML
+    // 3. Cálculo de GPU (NVIDIA ou AMD)
     if (nvml_ready && gpu_device) {
+        // NVIDIA via NVML
         nvmlUtilization_t util;
         if (fn_nvmlDeviceGetUtilizationRates(gpu_device, &util) == NVML_SUCCESS) {
             out->gpu_usage = (int)util.gpu;
@@ -257,6 +326,37 @@ void hardware_update(HardwareMetrics *out) {
         } else {
             out->gpu_power_w = 0;
         }
+    } else if (adl_ready && amd_adapter_index >= 0) {
+        // AMD Radeon via ADL
+        if (fn_ADL_Overdrive5_CurrentActivity_Get) {
+            ADLPMActivity act = {0};
+            act.iSize = sizeof(ADLPMActivity);
+            if (fn_ADL_Overdrive5_CurrentActivity_Get(amd_adapter_index, &act) == ADL_OK) {
+                out->gpu_usage = act.iActivityPercent;
+            } else {
+                out->gpu_usage = 0;
+            }
+        }
+        if (fn_ADL_Overdrive5_Temperature_Get) {
+            ADLTemperature temp = {0};
+            temp.iSize = sizeof(ADLTemperature);
+            if (fn_ADL_Overdrive5_Temperature_Get(amd_adapter_index, 0, &temp) == ADL_OK) {
+                out->gpu_temp = temp.iTemperature / 1000;
+            } else {
+                out->gpu_temp = 0;
+            }
+        }
+        if (fn_ADL_Overdrive6_CurrentPower_Get) {
+            int power_val = 0;
+            if (fn_ADL_Overdrive6_CurrentPower_Get(amd_adapter_index, 0, &power_val) == ADL_OK) {
+                out->gpu_power_w = power_val / 256;
+            } else {
+                out->gpu_power_w = 0;
+            }
+        } else {
+            out->gpu_power_w = 0;
+        }
+        out->vram_usage = out->gpu_usage; // Aproximação se VRAM ADL não exposta
     } else {
         out->gpu_usage = 0;
         out->gpu_temp = 0;
@@ -288,5 +388,13 @@ void hardware_cleanup(void) {
     if (hNvml) {
         FreeLibrary(hNvml);
         hNvml = NULL;
+    }
+    if (adl_ready && fn_ADL_Main_Control_Destroy) {
+        fn_ADL_Main_Control_Destroy();
+        adl_ready = FALSE;
+    }
+    if (hAdl) {
+        FreeLibrary(hAdl);
+        hAdl = NULL;
     }
 }
