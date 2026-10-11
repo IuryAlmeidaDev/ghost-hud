@@ -3,6 +3,7 @@
 
 static HFONT hFontBadge = NULL;
 static HFONT hFontValue = NULL;
+static HFONT hFontHint = NULL;
 
 // Paleta de Cores (Impeccable Dark Frosted Glass)
 #define COLOR_BG          RGB(13, 17, 23)
@@ -13,6 +14,7 @@ static HFONT hFontValue = NULL;
 #define COLOR_GOOD        RGB(0, 230, 118)
 #define COLOR_WARM        RGB(255, 171, 0)
 #define COLOR_HOT         RGB(255, 82, 82)
+#define COLOR_CYAN        RGB(0, 229, 255)
 
 static COLORREF get_thermal_color(int val) {
     if (val >= 83) return COLOR_HOT;
@@ -34,6 +36,13 @@ void ui_init(void) {
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Consolas"
     );
+
+    // Fonte para dicas de modo
+    hFontHint = CreateFontA(
+        -9, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
+    );
 }
 
 void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL locked) {
@@ -44,7 +53,7 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL lo
 
     // Fundo da cápsula com cantos arredondados
     HBRUSH hBrushBg = CreateSolidBrush(COLOR_BG);
-    HPEN hPenBorder = CreatePen(PS_SOLID, 1, locked ? COLOR_BORDER_LOCK : COLOR_BORDER_ADJ);
+    HPEN hPenBorder = CreatePen(PS_SOLID, locked ? 1 : 2, locked ? COLOR_BORDER_LOCK : COLOR_BORDER_ADJ);
 
     HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, hBrushBg);
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenBorder);
@@ -58,17 +67,17 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL lo
     int col1_x = width / 3;
     int col2_x = (width * 2) / 3;
 
-    MoveToEx(memDC, col1_x, 8, NULL);
-    LineTo(memDC, col1_x, height - 8);
+    MoveToEx(memDC, col1_x, 6, NULL);
+    LineTo(memDC, col1_x, height - 6);
 
-    MoveToEx(memDC, col2_x, 8, NULL);
-    LineTo(memDC, col2_x, height - 8);
+    MoveToEx(memDC, col2_x, 6, NULL);
+    LineTo(memDC, col2_x, height - 6);
 
     SetBkMode(memDC, TRANSPARENT);
 
     // --- Coluna 1: CPU ---
-    RECT rBadge1 = { 0, 6, col1_x, 20 };
-    RECT rVal1   = { 0, 22, col1_x, height - 6 };
+    RECT rBadge1 = { 0, 5, col1_x, 18 };
+    RECT rVal1   = { 0, 19, col1_x, height - 5 };
 
     SelectObject(memDC, hFontBadge);
     SetTextColor(memDC, COLOR_BADGE);
@@ -81,8 +90,8 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL lo
     DrawTextA(memDC, buf, -1, &rVal1, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
     // --- Coluna 2: GPU ---
-    RECT rBadge2 = { col1_x, 6, col2_x, 20 };
-    RECT rVal2   = { col1_x, 22, col2_x, height - 6 };
+    RECT rBadge2 = { col1_x, 5, col2_x, 18 };
+    RECT rVal2   = { col1_x, 19, col2_x, height - 5 };
 
     SelectObject(memDC, hFontBadge);
     SetTextColor(memDC, COLOR_BADGE);
@@ -99,8 +108,8 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL lo
     DrawTextA(memDC, buf, -1, &rVal2, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
     // --- Coluna 3: RAM ---
-    RECT rBadge3 = { col2_x, 6, width, 20 };
-    RECT rVal3   = { col2_x, 22, width, height - 6 };
+    RECT rBadge3 = { col2_x, 5, width, 18 };
+    RECT rVal3   = { col2_x, 19, width, height - 5 };
 
     SelectObject(memDC, hFontBadge);
     SetTextColor(memDC, COLOR_BADGE);
@@ -110,6 +119,14 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL lo
     SelectObject(memDC, hFontValue);
     SetTextColor(memDC, get_thermal_color(m ? m->ram_usage : 0));
     DrawTextA(memDC, buf, -1, &rVal3, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+    // Se estiver no Modo Ajuste, exibe pequena indicação de arrasto
+    if (!locked) {
+        RECT rHint = { 0, height - 12, width, height - 1 };
+        SelectObject(memDC, hFontHint);
+        SetTextColor(memDC, COLOR_CYAN);
+        DrawTextA(memDC, "ARRASTE  |  F9 P/ TRAVAR", -1, &rHint, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    }
 
     // Copia buffer de memória para o HDC da tela em uma única chamada rápida
     BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
@@ -133,5 +150,9 @@ void ui_cleanup(void) {
     if (hFontValue) {
         DeleteObject(hFontValue);
         hFontValue = NULL;
+    }
+    if (hFontHint) {
+        DeleteObject(hFontHint);
+        hFontHint = NULL;
     }
 }
