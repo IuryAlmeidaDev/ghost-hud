@@ -6,23 +6,25 @@ static HFONT hFontLabel = NULL;
 static HFONT hFontValue = NULL;
 static HFONT hFontMini = NULL;
 
-// Paleta de Cores Fiel ao Padrão de Interface do Jogo (Aion / NCSoft)
-#define COLOR_BG          RGB(15, 17, 21)      // Fundo obsidian slate escuro do jogo (#0F1115)
-#define COLOR_HEADER_BG   RGB(19, 23, 30)      // Fundo do cabeçalho integrado (#13171E)
-#define COLOR_SLOT_BG     RGB(22, 27, 36)      // Fundo dos módulos/slots de status (#161B24)
+// Paleta de Cores Obsidian Slate do Jogo
+#define COLOR_BG          RGB(15, 17, 21)      // Fundo obsidian slate escuro (#0F1115)
+#define COLOR_HEADER_BG   RGB(19, 23, 30)      // Fundo do cabeçalho (#13171E)
+#define COLOR_SLOT_BG     RGB(22, 27, 36)      // Fundo dos módulos/slots (#161B24)
 #define COLOR_SLOT_BORDER RGB(34, 42, 54)      // Borda interna de 1px dos slots (#222A36)
-#define COLOR_BORDER      RGB(42, 50, 64)      // Borda metálica sutil da janela (#2A3240)
+#define COLOR_BORDER      RGB(42, 50, 64)      // Borda metálica padrão da janela (#2A3240)
+#define COLOR_BORDER_HOT  RGB(255, 71, 87)     // Borda de alerta térmico para GPU quente (#FF4757)
 #define COLOR_DIVIDER     RGB(28, 34, 44)      // Separador horizontal sutil (#1C222C)
-#define COLOR_TRACK       RGB(14, 17, 23)      // Trilha escura rebaixada das barras de progresso (#0E1117)
+#define COLOR_TRACK       RGB(14, 17, 23)      // Trilha escura rebaixada das barras (#0E1117)
 
-#define COLOR_TITLE       RGB(220, 226, 236)   // Branco suave dos títulos e ícones (#DCE2EC)
-#define COLOR_LABEL       RGB(124, 138, 156)   // Cinza aço dos rótulos in-game (#7C8A9C)
+#define COLOR_TITLE       RGB(220, 226, 236)   // Branco suave (#DCE2EC)
+#define COLOR_LABEL       RGB(124, 138, 156)   // Cinza aço dos rótulos (#7C8A9C)
+#define COLOR_TIME        RGB(148, 162, 180)   // Cinza claro para o relógio (#94A2B4)
 
 // Escala de Cores Vibrante do HUD do Jogo:
-#define COLOR_GREEN       RGB(46, 213, 115)    // 🟢 Verde esmeralda brilhante (#2ED573 - idêntico aos buffs)
+#define COLOR_GREEN       RGB(46, 213, 115)    // 🟢 Verde esmeralda (#2ED573)
 #define COLOR_YELLOW      RGB(255, 190, 118)   // 🟡 Ouro suave (#FFBE76)
 #define COLOR_ORANGE      RGB(255, 121, 63)    // 🟠 Laranja quente (#FF793F)
-#define COLOR_RED         RGB(255, 71, 87)     // 🔴 Vermelho carmesim (#FF4757 - idêntico à barra de HP)
+#define COLOR_RED         RGB(255, 71, 87)     // 🔴 Vermelho carmesim (#FF4757)
 
 static COLORREF get_status_color(int usage_pct, int temp_c) {
     int score = usage_pct;
@@ -40,29 +42,33 @@ static COLORREF get_status_color(int usage_pct, int temp_c) {
     return COLOR_GREEN;
 }
 
+static COLORREF get_ping_color(int ms) {
+    if (ms <= 0) return COLOR_LABEL;
+    if (ms <= 45) return COLOR_GREEN;
+    if (ms <= 80) return COLOR_YELLOW;
+    if (ms <= 130) return COLOR_ORANGE;
+    return COLOR_RED;
+}
+
 void ui_init(void) {
-    // Fonte da barra de título (-8 Bold Segoe UI)
     hFontTitle = CreateFontA(
         -8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
     );
 
-    // Fonte dos rótulos CPU, GPU, RAM (-8 Semibold Segoe UI)
     hFontLabel = CreateFontA(
         -8, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
     );
 
-    // Fonte dos números de alta visibilidade (-11 Bold Segoe UI)
     hFontValue = CreateFontA(
         -11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
     );
 
-    // Fonte para o modo minimizado compacto (-8 Bold Segoe UI)
     hFontMini = CreateFontA(
         -8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -88,10 +94,9 @@ static void draw_gauge_bar(HDC hdc, int x, int y, int width, int height, int pct
     }
 }
 
-// Renderiza um slot/cartão modular com acabamento de 1px idêntico aos botões do jogo
 static void draw_metric_slot(HDC memDC, int x, int y, int w, int h, 
                              const char *label, const char *value, int pct, COLORREF val_color) {
-    // 1. Fundo do slot
+    // 1. Fundo e contorno do slot
     HBRUSH hBrushSlot = CreateSolidBrush(COLOR_SLOT_BG);
     HPEN hPenSlot = CreatePen(PS_SOLID, 1, COLOR_SLOT_BORDER);
     HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, hBrushSlot);
@@ -104,7 +109,7 @@ static void draw_metric_slot(HDC memDC, int x, int y, int w, int h,
     DeleteObject(hBrushSlot);
     DeleteObject(hPenSlot);
 
-    // 2. Rótulo (CPU, GPU, RAM)
+    // 2. Rótulo superior
     RECT rLbl = { x, y + 1, x + w, y + 10 };
     SelectObject(memDC, hFontLabel);
     SetTextColor(memDC, COLOR_LABEL);
@@ -117,14 +122,13 @@ static void draw_metric_slot(HDC memDC, int x, int y, int w, int h,
     DrawTextA(memDC, value, -1, &rVal, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
     // 4. Mini barra de progresso no rodapé do slot
-    int g_w = w - 8;
-    int g_x = x + 4;
+    int g_w = w - 6;
+    int g_x = x + 3;
     int g_y = y + h - 3;
     draw_gauge_bar(memDC, g_x, g_y, g_w, 2, pct, val_color);
 }
 
-static void render_mini_mode(HDC memDC, int width, int height, const HardwareMetrics *m) {
-    // Cabeçalho mini
+static void render_mini_mode(HDC memDC, int width, int height, const HardwareMetrics *m, int timer_left) {
     RECT rHdr = { 2, 2, width - 2, 12 };
     HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
     FillRect(memDC, &rHdr, hBrushHdr);
@@ -134,11 +138,17 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
     SelectObject(memDC, hFontTitle);
     SetTextColor(memDC, COLOR_TITLE);
 
-    // Título à esquerda
     RECT rTitle = { 4, 1, width - 16, 12 };
-    DrawTextA(memDC, "HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    if (timer_left > 0) {
+        char tbuf[16];
+        snprintf(tbuf, sizeof(tbuf), "%02d:%02d", timer_left / 60, timer_left % 60);
+        SetTextColor(memDC, COLOR_YELLOW);
+        DrawTextA(memDC, tbuf, -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    } else {
+        DrawTextA(memDC, "HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    }
 
-    // Botão discreto [+] de maximizar no canto superior direito
+    // Botão [+]
     int btn_x = width - 14;
     int btn_y = 2;
     HPEN hPenPlus = CreatePen(PS_SOLID, 1, COLOR_TITLE);
@@ -150,7 +160,6 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
     SelectObject(memDC, oldPenBtn);
     DeleteObject(hPenPlus);
 
-    // Linha divisória horizontal do cabeçalho
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenDiv);
     MoveToEx(memDC, 2, 12, NULL);
@@ -160,50 +169,68 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
 
     int cpu = m ? m->cpu_usage : 0;
     int gpu = m ? m->gpu_usage : 0;
+    int vram = m ? m->vram_usage : 0;
     int ram = m ? m->ram_usage : 0;
-
-    COLORREF col_cpu = get_status_color(cpu, 0);
-    COLORREF col_gpu = get_status_color(gpu, m ? m->gpu_temp : 0);
-    COLORREF col_ram = get_status_color(ram, 0);
+    int ping = m ? m->ping_ms : 0;
 
     char buf[16];
 
-    // Linha 1: CPU
-    RECT rL1 = { 4, 13, 20, 22 };
-    RECT rV1 = { 20, 13, width - 4, 22 };
-    SelectObject(memDC, hFontLabel);
-    SetTextColor(memDC, COLOR_LABEL);
+    // 5 linhas compactas no mini mode
+    int y_start = 13;
+    int row_h = 10;
+
+    // CPU
+    RECT rL1 = { 4, y_start, 24, y_start + row_h };
+    RECT rV1 = { 24, y_start, width - 4, y_start + row_h };
+    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
     DrawTextA(memDC, "CPU", -1, &rL1, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     snprintf(buf, sizeof(buf), "%d%%", cpu);
-    SelectObject(memDC, hFontMini);
-    SetTextColor(memDC, col_cpu);
+    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(cpu, 0));
     DrawTextA(memDC, buf, -1, &rV1, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 
-    // Linha 2: GPU
-    RECT rL2 = { 4, 23, 20, 32 };
-    RECT rV2 = { 20, 23, width - 4, 32 };
-    SelectObject(memDC, hFontLabel);
-    SetTextColor(memDC, COLOR_LABEL);
+    // GPU
+    y_start += row_h;
+    RECT rL2 = { 4, y_start, 24, y_start + row_h };
+    RECT rV2 = { 24, y_start, width - 4, y_start + row_h };
+    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
     DrawTextA(memDC, "GPU", -1, &rL2, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     snprintf(buf, sizeof(buf), "%d%%", gpu);
-    SelectObject(memDC, hFontMini);
-    SetTextColor(memDC, col_gpu);
+    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(gpu, m ? m->gpu_temp : 0));
     DrawTextA(memDC, buf, -1, &rV2, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 
-    // Linha 3: RAM
-    RECT rL3 = { 4, 33, 20, 42 };
-    RECT rV3 = { 20, 33, width - 4, 42 };
-    SelectObject(memDC, hFontLabel);
-    SetTextColor(memDC, COLOR_LABEL);
-    DrawTextA(memDC, "RAM", -1, &rL3, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    snprintf(buf, sizeof(buf), "%d%%", ram);
-    SelectObject(memDC, hFontMini);
-    SetTextColor(memDC, col_ram);
+    // VRAM
+    y_start += row_h;
+    RECT rL3 = { 4, y_start, 24, y_start + row_h };
+    RECT rV3 = { 24, y_start, width - 4, y_start + row_h };
+    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
+    DrawTextA(memDC, "VRAM", -1, &rL3, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    snprintf(buf, sizeof(buf), "%d%%", vram);
+    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(vram, 0));
     DrawTextA(memDC, buf, -1, &rV3, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+
+    // RAM
+    y_start += row_h;
+    RECT rL4 = { 4, y_start, 24, y_start + row_h };
+    RECT rV4 = { 24, y_start, width - 4, y_start + row_h };
+    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
+    DrawTextA(memDC, "RAM", -1, &rL4, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    snprintf(buf, sizeof(buf), "%d%%", ram);
+    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(ram, 0));
+    DrawTextA(memDC, buf, -1, &rV4, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+
+    // PING
+    y_start += row_h;
+    RECT rL5 = { 4, y_start, 24, y_start + row_h };
+    RECT rV5 = { 24, y_start, width - 4, y_start + row_h };
+    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
+    DrawTextA(memDC, "PING", -1, &rL5, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    snprintf(buf, sizeof(buf), "%dms", ping);
+    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_ping_color(ping));
+    DrawTextA(memDC, buf, -1, &rV5, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 }
 
-static void render_normal_mode(HDC memDC, int width, int height, const HardwareMetrics *m) {
-    // 1. Cabeçalho Integrado Estilo Jogo (Topo 13px)
+static void render_normal_mode(HDC memDC, int width, int height, const HardwareMetrics *m, int timer_left) {
+    // 1. Cabeçalho Integrado com Relógio / Timer de Buff
     RECT rHdr = { 2, 2, width - 2, 13 };
     HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
     FillRect(memDC, &rHdr, hBrushHdr);
@@ -212,10 +239,24 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
     SetBkMode(memDC, TRANSPARENT);
     SelectObject(memDC, hFontTitle);
 
-    // Título limpo à esquerda: "GHOST HUD"
+    // Título à esquerda
     SetTextColor(memDC, COLOR_TITLE);
-    RECT rTitle = { 6, 1, width - 20, 13 };
+    RECT rTitle = { 6, 1, 62, 13 };
     DrawTextA(memDC, "GHOST HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+    // Relógio Digital / Timer de Buffs
+    char timeBuf[32];
+    RECT rClock = { 65, 1, width - 20, 13 };
+    if (timer_left > 0) {
+        snprintf(timeBuf, sizeof(timeBuf), "\x95  BUFF: %02d:%02d", timer_left / 60, timer_left % 60);
+        SetTextColor(memDC, COLOR_YELLOW);
+    } else {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        snprintf(timeBuf, sizeof(timeBuf), "\x95  %02d:%02d", st.wHour, st.wMinute);
+        SetTextColor(memDC, COLOR_TIME);
+    }
+    DrawTextA(memDC, timeBuf, -1, &rClock, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
     // Botão discreto [-] de minimizar no canto superior direito
     int btn_x = width - 16;
@@ -227,7 +268,7 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
     SelectObject(memDC, oldPenBtn);
     DeleteObject(hPenMinus);
 
-    // Linha divisória horizontal separando o cabeçalho do conteúdo
+    // Linha divisória horizontal separando cabeçalho
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenDiv);
     MoveToEx(memDC, 2, 13, NULL);
@@ -235,70 +276,95 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
     SelectObject(memDC, oldPen);
     DeleteObject(hPenDiv);
 
-    // 2. Três Slots Modulares Individuais (Estilo Cartões de Interface do Jogo)
-    // Largura total: width = 192. Espaço útil = 186px.
-    // 3 slots de 58px cada com 4px de espaçamento entre eles:
-    // Slot 1: x = 4  (4 a 62)
-    // Slot 2: x = 67 (67 a 125)
-    // Slot 3: x = 130 (130 a 188)
-    int slot_w = 58;
+    // 2. Cinco Slots Modulares de Status: CPU, GPU, VRAM, RAM, PING
+    // Largura total: width = 240. Margens: 4px cada lado. Espaço útil = 232px.
+    // 5 slots de 44px com 3px de espaçamento entre eles:
+    // Slot 1: x = 4
+    // Slot 2: x = 51
+    // Slot 3: x = 98
+    // Slot 4: x = 145
+    // Slot 5: x = 192
+    int slot_w = 44;
     int slot_h = 26;
     int slot_y = 15;
 
     char buf[32];
 
     // --- SLOT 1: CPU ---
-    int cpu_usage = m ? m->cpu_usage : 0;
-    COLORREF color_cpu = get_status_color(cpu_usage, 0);
-    snprintf(buf, sizeof(buf), "%d%%", cpu_usage);
-    draw_metric_slot(memDC, 4, slot_y, slot_w, slot_h, "CPU", buf, cpu_usage, color_cpu);
+    int cpu = m ? m->cpu_usage : 0;
+    COLORREF color_cpu = get_status_color(cpu, 0);
+    snprintf(buf, sizeof(buf), "%d%%", cpu);
+    draw_metric_slot(memDC, 4, slot_y, slot_w, slot_h, "CPU", buf, cpu, color_cpu);
 
     // --- SLOT 2: GPU ---
-    int gpu_usage = m ? m->gpu_usage : 0;
+    int gpu = m ? m->gpu_usage : 0;
     int gpu_temp = m ? m->gpu_temp : 0;
-    COLORREF color_gpu = get_status_color(gpu_usage, gpu_temp);
+    COLORREF color_gpu = get_status_color(gpu, gpu_temp);
     if (gpu_temp > 0) {
-        snprintf(buf, sizeof(buf), "%d%% %d\xB0", gpu_usage, gpu_temp);
+        snprintf(buf, sizeof(buf), "%d\xB0" "C", gpu_temp); // Foco na temperatura e carga
     } else {
-        snprintf(buf, sizeof(buf), "%d%%", gpu_usage);
+        snprintf(buf, sizeof(buf), "%d%%", gpu);
     }
-    draw_metric_slot(memDC, 67, slot_y, slot_w, slot_h, "GPU", buf, gpu_usage, color_gpu);
+    draw_metric_slot(memDC, 51, slot_y, slot_w, slot_h, "GPU", buf, gpu, color_gpu);
 
-    // --- SLOT 3: RAM ---
-    int ram_usage = m ? m->ram_usage : 0;
-    COLORREF color_ram = get_status_color(ram_usage, 0);
-    snprintf(buf, sizeof(buf), "%d%%", ram_usage);
-    draw_metric_slot(memDC, 130, slot_y, slot_w, slot_h, "RAM", buf, ram_usage, color_ram);
+    // --- SLOT 3: VRAM ---
+    int vram_pct = m ? m->vram_usage : 0;
+    COLORREF color_vram = get_status_color(vram_pct, 0);
+    if (m && m->vram_used_mb > 0) {
+        float vram_gb = (float)m->vram_used_mb / 1024.0f;
+        snprintf(buf, sizeof(buf), "%.1fG", vram_gb);
+    } else {
+        snprintf(buf, sizeof(buf), "%d%%", vram_pct);
+    }
+    draw_metric_slot(memDC, 98, slot_y, slot_w, slot_h, "VRAM", buf, vram_pct, color_vram);
+
+    // --- SLOT 4: RAM ---
+    int ram = m ? m->ram_usage : 0;
+    COLORREF color_ram = get_status_color(ram, 0);
+    snprintf(buf, sizeof(buf), "%d%%", ram);
+    draw_metric_slot(memDC, 145, slot_y, slot_w, slot_h, "RAM", buf, ram, color_ram);
+
+    // --- SLOT 5: PING ---
+    int ping = m ? m->ping_ms : 0;
+    COLORREF color_ping = get_ping_color(ping);
+    if (ping > 0) {
+        snprintf(buf, sizeof(buf), "%dms", ping);
+    } else {
+        snprintf(buf, sizeof(buf), "--ms");
+    }
+    int ping_gauge = (ping > 0) ? ((ping * 100) / 120) : 0;
+    draw_metric_slot(memDC, 192, slot_y, slot_w, slot_h, "PING", buf, ping_gauge, color_ping);
 }
 
-void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL minimized) {
+void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL minimized, int timer_left) {
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBmp = CreateCompatibleBitmap(hdc, width, height);
     HBITMAP oldBmp = (HBITMAP)SelectObject(memDC, memBmp);
 
-    // 1. Cria região com cantos sutis de 3px (perfeitamente alinhado aos painéis do jogo)
+    // 1. Clipping com cantos sutis de 3px
     HRGN hClip = CreateRoundRectRgn(0, 0, width + 1, height + 1, 3, 3);
     SelectClipRgn(memDC, hClip);
 
-    // 2. Preenche fundo principal
+    // 2. Fundo principal
     HBRUSH hBrushBg = CreateSolidBrush(COLOR_BG);
     RECT rcAll = { 0, 0, width, height };
     FillRect(memDC, &rcAll, hBrushBg);
     DeleteObject(hBrushBg);
 
-    // 3. Renderiza conteúdo específico (Normal ou Mini)
+    // 3. Renderiza conteúdo
     if (minimized) {
-        render_mini_mode(memDC, width, height, m);
+        render_mini_mode(memDC, width, height, m, timer_left);
     } else {
-        render_normal_mode(memDC, width, height, m);
+        render_normal_mode(memDC, width, height, m, timer_left);
     }
 
-    // 4. Remove o clipping para desenhar a borda externa
+    // 4. Remove clipping para desenhar a borda
     SelectClipRgn(memDC, NULL);
     DeleteObject(hClip);
 
-    // 5. Desenha a borda metálica elegante e discreta (1px constante, estilo MMORPG)
-    HPEN hPenBorder = CreatePen(PS_SOLID, 1, COLOR_BORDER);
+    // 5. Alerta Térmico: se GPU >= 82°C, borda pisca em vermelho suave de proteção
+    BOOL is_hot = (m && m->gpu_temp >= 82);
+    HPEN hPenBorder = CreatePen(PS_SOLID, 1, is_hot ? COLOR_BORDER_HOT : COLOR_BORDER);
     HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, GetStockObject(NULL_BRUSH));
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenBorder);
 
@@ -308,7 +374,7 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL mi
     SelectObject(memDC, oldPen);
     DeleteObject(hPenBorder);
 
-    // Copia buffer para tela (Double Buffering sem flicker)
+    // Double buffering sem flicker
     BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
 
     SelectObject(memDC, oldBmp);

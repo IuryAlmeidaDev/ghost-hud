@@ -2,7 +2,7 @@
 #include "nvml_lite.h"
 #include <stdio.h>
 
-// Ponteiros dinâmicos para kernel32 (compatibilidade universal com qualquer compilador)
+// Ponteiros dinâmicos para kernel32
 typedef BOOL (WINAPI *pfn_GetSystemTimes)(LPFILETIME, LPFILETIME, LPFILETIME);
 typedef BOOL (WINAPI *pfn_GlobalMemoryStatusEx)(LPMEMORYSTATUSEX);
 
@@ -26,8 +26,68 @@ static pfn_nvmlDeviceGetTemperature fn_nvmlDeviceGetTemperature = NULL;
 static pfn_nvmlDeviceGetMemoryInfo fn_nvmlDeviceGetMemoryInfo = NULL;
 static BOOL nvml_ready = FALSE;
 
+// Estruturas e ponteiros dinâmicos para ICMP (Ping de Rede)
+typedef struct {
+    unsigned long Address;
+    unsigned long Status;
+    unsigned long RoundTripTime;
+    unsigned short DataSize;
+    unsigned short Reserved;
+    void *Data;
+    struct {
+        unsigned char Ttl;
+        unsigned char Tos;
+        unsigned char Flags;
+        unsigned char OptionsSize;
+        unsigned char *OptionsData;
+    } Options;
+} ICMP_ECHO_REPLY;
+
+typedef HANDLE (WINAPI *pfn_IcmpCreateFile)(VOID);
+typedef BOOL   (WINAPI *pfn_IcmpCloseHandle)(HANDLE);
+typedef DWORD  (WINAPI *pfn_IcmpSendEcho)(HANDLE, unsigned long, LPVOID, WORD, LPVOID, LPVOID, DWORD, DWORD);
+
+static HMODULE hIcmp = NULL;
+static pfn_IcmpCreateFile fn_IcmpCreateFile = NULL;
+static pfn_IcmpCloseHandle fn_IcmpCloseHandle = NULL;
+static pfn_IcmpSendEcho fn_IcmpSendEcho = NULL;
+
+static volatile BOOL g_pingRunning = TRUE;
+static HANDLE g_hPingThread = NULL;
+static volatile int g_currentPing = 0;
+
+static DWORD WINAPI PingBackgroundThread(LPVOID lpParam) {
+    if (!fn_IcmpCreateFile || !fn_IcmpSendEcho || !fn_IcmpCloseHandle) return 0;
+
+    HANDLE hFile = fn_IcmpCreateFile();
+    if (hFile == INVALID_HANDLE_VALUE) return 0;
+
+    char sendData[32] = "GHOSTHUD_PING";
+    char replyBuf[sizeof(ICMP_ECHO_REPLY) + 64];
+
+    // 1.1.1.1 (Cloudflare DNS - menor latência global) em ordem de bytes de rede
+    unsigned long targetIp = 0x01010101; 
+
+    while (g_pingRunning) {
+        DWORD replies = fn_IcmpSendEcho(hFile, targetIp, sendData, (WORD)sizeof(sendData), 
+                                        NULL, replyBuf, (DWORD)sizeof(replyBuf), 800);
+        if (replies > 0) {
+            ICMP_ECHO_REPLY *reply = (ICMP_ECHO_REPLY *)replyBuf;
+            if (reply->Status == 0) {
+                g_currentPing = (int)reply->RoundTripTime;
+            }
+        }
+        Sleep(1500); // Mede ping a cada 1.5s em segundo plano (0% lag na interface)
+    }
+
+    fn_IcmpCloseHandle(hFile);
+    return 0;
+}
+
 static ULONGLONG file_time_to_ull(const FILETIME *ft) {
     ULARGE_INTEGER uli;
+    uli.LowPart = ft->dwLowDateTime;
+    uli.HighPart = ft->dwLowDateTime ? ft->dwHighDateTime : ft->dwHighDateTime;
     uli.LowPart = ft->dwLowDateTime;
     uli.HighPart = ft->dwHighDateTime;
     return uli.QuadPart;
@@ -77,6 +137,22 @@ void hardware_init(void) {
                     nvml_ready = TRUE;
                 }
             }
+        }
+    }
+
+    // Carregamento dinâmico de ICMP para medição de Ping
+    hIcmp = LoadLibraryA("icmp.dll");
+    if (!hIcmp) {
+        hIcmp = LoadLibraryA("iphlpapi.dll");
+    }
+    if (hIcmp) {
+        fn_IcmpCreateFile = (pfn_IcmpCreateFile)GetProcAddress(hIcmp, "IcmpCreateFile");
+        fn_IcmpCloseHandle = (pfn_IcmpCloseHandle)GetProcAddress(hIcmp, "IcmpCloseHandle");
+        fn_IcmpSendEcho = (pfn_IcmpSendEcho)GetProcAddress(hIcmp, "IcmpSendEcho");
+
+        if (fn_IcmpCreateFile && fn_IcmpSendEcho && fn_IcmpCloseHandle) {
+            g_pingRunning = TRUE;
+            g_hPingThread = CreateThread(NULL, 0, PingBackgroundThread, NULL, 0, NULL);
         }
     }
 }
@@ -133,7 +209,6 @@ void hardware_update(HardwareMetrics *out) {
             out->ram_total_mb = 0;
         }
     } else {
-        // Fallback para GlobalMemoryStatus clássico
         MEMORYSTATUS ms;
         ms.dwLength = sizeof(MEMORYSTATUS);
         GlobalMemoryStatus(&ms);
@@ -142,7 +217,7 @@ void hardware_update(HardwareMetrics *out) {
         out->ram_used_mb = (int)((ms.dwTotalPhys - ms.dwAvailPhys) / (1024 * 1024));
     }
 
-    // 3. Cálculo de GPU via NVML
+    // 3. Cálculo de GPU e VRAM via NVML
     if (nvml_ready && gpu_device) {
         nvmlUtilization_t util;
         if (fn_nvmlDeviceGetUtilizationRates(gpu_device, &util) == NVML_SUCCESS) {
@@ -163,6 +238,11 @@ void hardware_update(HardwareMetrics *out) {
             if (fn_nvmlDeviceGetMemoryInfo(gpu_device, &vram) == NVML_SUCCESS) {
                 out->vram_used_mb = (int)(vram.used / (1024 * 1024));
                 out->vram_total_mb = (int)(vram.total / (1024 * 1024));
+                if (out->vram_total_mb > 0) {
+                    out->vram_usage = (int)((vram.used * 100) / vram.total);
+                } else {
+                    out->vram_usage = 0;
+                }
             }
         }
     } else {
@@ -170,10 +250,24 @@ void hardware_update(HardwareMetrics *out) {
         out->gpu_temp = 0;
         out->vram_used_mb = 0;
         out->vram_total_mb = 0;
+        out->vram_usage = 0;
     }
+
+    // 4. Ping em tempo real da thread de background
+    out->ping_ms = g_currentPing;
 }
 
 void hardware_cleanup(void) {
+    g_pingRunning = FALSE;
+    if (g_hPingThread) {
+        WaitForSingleObject(g_hPingThread, 200);
+        CloseHandle(g_hPingThread);
+        g_hPingThread = NULL;
+    }
+    if (hIcmp) {
+        FreeLibrary(hIcmp);
+        hIcmp = NULL;
+    }
     if (nvml_ready && fn_nvmlShutdown) {
         fn_nvmlShutdown();
         nvml_ready = FALSE;
