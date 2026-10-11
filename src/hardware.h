@@ -14,7 +14,6 @@ typedef struct {
     int ram_used_mb;     // RAM usada em MB
     int ram_total_mb;    // RAM total em MB
     int ping_ms;         // Latência de rede em ms (tempo real)
-    int gpu_power_w;     // Consumo da GPU em Watts (TDP real)
 } HardwareMetrics;
 
 void hardware_init(void);

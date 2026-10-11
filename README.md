@@ -33,8 +33,6 @@ Diferente de softwares pesados como MSI Afterburner ou GeForce Experience, o Gho
 - **VRAM Dedicada:** Consumo percentual e em Gigabytes da memória de vídeo.
 - **RAM do Sistema:** Uso percentual e memória utilizada/total via `GlobalMemoryStatusEx`.
 - **Ping de Rede (ms):** Latência real medida assincronamente via ICMP em thread de background (sem travar a interface).
-- **Consumo de Energia (PWR):** Medição do TDP real puxado pela placa de vídeo em **Watts**.
-- **Relógio In-Game:** Hora atual integrada discretamente na barra de título.
 
 ### 🎮 Suporte Multi-Vendor (NVIDIA & AMD Radeon)
 - **NVIDIA:** Integração nativa com a biblioteca oficial **NVML** (`nvml.dll`).

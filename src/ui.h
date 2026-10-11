@@ -28,8 +28,6 @@ typedef struct {
     BOOL show_vram;
     BOOL show_ram;
     BOOL show_ping;
-    BOOL show_power;
-    BOOL show_clock;
     HudSize size;
     HudOrientation orientation;
     HudTheme theme;

@@ -102,13 +102,6 @@ static COLORREF get_ping_color(int ms) {
     return COLOR_RED;
 }
 
-static COLORREF get_power_color(int watts) {
-    if (watts <= 140) return COLOR_GREEN;
-    if (watts <= 210) return COLOR_YELLOW;
-    if (watts <= 265) return COLOR_ORANGE;
-    return COLOR_RED;
-}
-
 void ui_init(void) {
     // 0: Pequeno (Compacto)
     hFontTitle[0] = CreateFontA(-8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
@@ -161,7 +154,6 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
     if (cfg->show_vram) active_slots++;
     if (cfg->show_ram) active_slots++;
     if (cfg->show_ping) active_slots++;
-    if (cfg->show_power) active_slots++;
 
     int slot_w, slot_h, slot_gap, header_h, pad_x, pad_y;
     int min_hdr_w;
@@ -174,7 +166,7 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
             header_h = 16;
             pad_x = 4;
             pad_y = 4;
-            min_hdr_w = cfg->show_clock ? 160 : 95;
+            min_hdr_w = 95;
             break;
         case HUD_SIZE_LARGE:
             slot_w = 68;
@@ -183,7 +175,7 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
             header_h = 19;
             pad_x = 5;
             pad_y = 5;
-            min_hdr_w = cfg->show_clock ? 190 : 115;
+            min_hdr_w = 115;
             break;
         case HUD_SIZE_SMALL:
         default:
@@ -193,7 +185,7 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
             header_h = 13;
             pad_x = 3;
             pad_y = 3;
-            min_hdr_w = cfg->show_clock ? 130 : 80;
+            min_hdr_w = 80;
             break;
     }
 
@@ -341,19 +333,8 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
         RECT rTitle = { pad_x + 1, 1, width - 20, header_h };
         DrawTextA(memDC, "HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     } else {
-        int title_w = (s_idx == 0) ? 58 : ((s_idx == 1) ? 72 : 88);
-        RECT rTitle = { pad_x + 2, 1, pad_x + 2 + title_w, header_h };
+        RECT rTitle = { pad_x + 2, 1, width - 20, header_h };
         DrawTextA(memDC, "GHOST HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
-        if (config->show_clock) {
-            SYSTEMTIME st;
-            GetLocalTime(&st);
-            char timeBuf[32];
-            snprintf(timeBuf, sizeof(timeBuf), "\x95  %02d:%02d", st.wHour, st.wMinute);
-            SetTextColor(memDC, tc.time);
-            RECT rClock = { pad_x + 2 + title_w + 4, 1, width - 22, header_h };
-            DrawTextA(memDC, timeBuf, -1, &rClock, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        }
     }
 
     // Ícone da Engrenagem [⚙]
@@ -377,7 +358,6 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
     if (config->show_vram) active_slots++;
     if (config->show_ram) active_slots++;
     if (config->show_ping) active_slots++;
-    if (config->show_power) active_slots++;
 
     if (active_slots > 0) {
         char buf[32];
@@ -419,11 +399,6 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
                 if (ping > 0) snprintf(buf, sizeof(buf), "%dms", ping);
                 else snprintf(buf, sizeof(buf), "--");
                 DRAW_SLOT_V("PING", buf, ping > 150 ? 100 : (ping * 100) / 150, get_ping_color(ping));
-            }
-            if (config->show_power) {
-                int watts = metrics ? metrics->gpu_power_w : 0;
-                snprintf(buf, sizeof(buf), "%dW", watts);
-                DRAW_SLOT_V("PWR", buf, (watts * 100) / 290, get_power_color(watts));
             }
             #undef DRAW_SLOT_V
 
@@ -470,11 +445,6 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
                 if (ping > 0) snprintf(buf, sizeof(buf), "%dms", ping);
                 else snprintf(buf, sizeof(buf), "--");
                 DRAW_SLOT_H("PING", buf, ping > 150 ? 100 : (ping * 100) / 150, get_ping_color(ping));
-            }
-            if (config->show_power) {
-                int watts = metrics ? metrics->gpu_power_w : 0;
-                snprintf(buf, sizeof(buf), "%dW", watts);
-                DRAW_SLOT_H("PWR", buf, (watts * 100) / 290, get_power_color(watts));
             }
             #undef DRAW_SLOT_H
         }

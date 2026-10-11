@@ -26,7 +26,6 @@ static pfn_nvmlDeviceGetHandleByIndex fn_nvmlDeviceGetHandleByIndex = NULL;
 static pfn_nvmlDeviceGetUtilizationRates fn_nvmlDeviceGetUtilizationRates = NULL;
 static pfn_nvmlDeviceGetTemperature fn_nvmlDeviceGetTemperature = NULL;
 static pfn_nvmlDeviceGetMemoryInfo fn_nvmlDeviceGetMemoryInfo = NULL;
-static pfn_nvmlDeviceGetPowerUsage fn_nvmlDeviceGetPowerUsage = NULL;
 static BOOL nvml_ready = FALSE;
 
 // Estado dinâmico do AMD ADL (Radeon)
@@ -37,7 +36,6 @@ static pfn_ADL_Adapter_NumberOfAdapters_Get fn_ADL_Adapter_NumberOfAdapters_Get 
 static pfn_ADL_Adapter_AdapterInfo_Get fn_ADL_Adapter_AdapterInfo_Get = NULL;
 static pfn_ADL_Overdrive5_Temperature_Get fn_ADL_Overdrive5_Temperature_Get = NULL;
 static pfn_ADL_Overdrive5_CurrentActivity_Get fn_ADL_Overdrive5_CurrentActivity_Get = NULL;
-static pfn_ADL_Overdrive6_CurrentPower_Get fn_ADL_Overdrive6_CurrentPower_Get = NULL;
 static BOOL adl_ready = FALSE;
 static int amd_adapter_index = -1;
 
@@ -159,7 +157,6 @@ void hardware_init(void) {
         fn_nvmlDeviceGetUtilizationRates = (pfn_nvmlDeviceGetUtilizationRates)GetProcAddress(hNvml, "nvmlDeviceGetUtilizationRates");
         fn_nvmlDeviceGetTemperature = (pfn_nvmlDeviceGetTemperature)GetProcAddress(hNvml, "nvmlDeviceGetTemperature");
         fn_nvmlDeviceGetMemoryInfo = (pfn_nvmlDeviceGetMemoryInfo)GetProcAddress(hNvml, "nvmlDeviceGetMemoryInfo");
-        fn_nvmlDeviceGetPowerUsage = (pfn_nvmlDeviceGetPowerUsage)GetProcAddress(hNvml, "nvmlDeviceGetPowerUsage");
 
         if (fn_nvmlInit && fn_nvmlDeviceGetHandleByIndex && fn_nvmlDeviceGetUtilizationRates && fn_nvmlDeviceGetTemperature) {
             if (fn_nvmlInit() == NVML_SUCCESS) {
@@ -183,7 +180,6 @@ void hardware_init(void) {
             fn_ADL_Adapter_AdapterInfo_Get = (pfn_ADL_Adapter_AdapterInfo_Get)GetProcAddress(hAdl, "ADL_Adapter_AdapterInfo_Get");
             fn_ADL_Overdrive5_Temperature_Get = (pfn_ADL_Overdrive5_Temperature_Get)GetProcAddress(hAdl, "ADL_Overdrive5_Temperature_Get");
             fn_ADL_Overdrive5_CurrentActivity_Get = (pfn_ADL_Overdrive5_CurrentActivity_Get)GetProcAddress(hAdl, "ADL_Overdrive5_CurrentActivity_Get");
-            fn_ADL_Overdrive6_CurrentPower_Get = (pfn_ADL_Overdrive6_CurrentPower_Get)GetProcAddress(hAdl, "ADL_Overdrive6_CurrentPower_Get");
 
             if (fn_ADL_Main_Control_Create && fn_ADL_Adapter_NumberOfAdapters_Get && fn_ADL_Adapter_AdapterInfo_Get) {
                 if (fn_ADL_Main_Control_Create(ADL_Main_Memory_Alloc, 1) == ADL_OK) {
@@ -316,16 +312,6 @@ void hardware_update(HardwareMetrics *out) {
                 }
             }
         }
-        if (fn_nvmlDeviceGetPowerUsage) {
-            unsigned int power_mw = 0;
-            if (fn_nvmlDeviceGetPowerUsage(gpu_device, &power_mw) == NVML_SUCCESS) {
-                out->gpu_power_w = (int)(power_mw / 1000);
-            } else {
-                out->gpu_power_w = 0;
-            }
-        } else {
-            out->gpu_power_w = 0;
-        }
     } else if (adl_ready && amd_adapter_index >= 0) {
         // AMD Radeon via ADL
         if (fn_ADL_Overdrive5_CurrentActivity_Get) {
@@ -346,16 +332,6 @@ void hardware_update(HardwareMetrics *out) {
                 out->gpu_temp = 0;
             }
         }
-        if (fn_ADL_Overdrive6_CurrentPower_Get) {
-            int power_val = 0;
-            if (fn_ADL_Overdrive6_CurrentPower_Get(amd_adapter_index, 0, &power_val) == ADL_OK) {
-                out->gpu_power_w = power_val / 256;
-            } else {
-                out->gpu_power_w = 0;
-            }
-        } else {
-            out->gpu_power_w = 0;
-        }
         out->vram_usage = out->gpu_usage; // Aproximação se VRAM ADL não exposta
     } else {
         out->gpu_usage = 0;
@@ -363,7 +339,6 @@ void hardware_update(HardwareMetrics *out) {
         out->vram_used_mb = 0;
         out->vram_total_mb = 0;
         out->vram_usage = 0;
-        out->gpu_power_w = 0;
     }
 
     // 4. Ping em tempo real da thread de background

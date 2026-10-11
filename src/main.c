@@ -16,8 +16,6 @@
 #define IDM_TOGGLE_VRAM       203
 #define IDM_TOGGLE_RAM        204
 #define IDM_TOGGLE_PING       205
-#define IDM_TOGGLE_POWER      206
-#define IDM_TOGGLE_CLOCK      207
 
 #define IDM_SIZE_SMALL        210
 #define IDM_SIZE_MEDIUM       211
@@ -97,8 +95,6 @@ static HudConfig g_config = {
     .show_vram = TRUE,
     .show_ram = TRUE,
     .show_ping = TRUE,
-    .show_power = TRUE,
-    .show_clock = TRUE,
     .size = HUD_SIZE_SMALL,
     .orientation = HUD_ORIENT_HORIZONTAL,
     .theme = HUD_THEME_OBSIDIAN,
@@ -184,8 +180,6 @@ static void load_config(HudConfig *cfg) {
     cfg->show_vram = GetPrivateProfileIntA("HUD", "show_vram", 1, g_iniPath);
     cfg->show_ram = GetPrivateProfileIntA("HUD", "show_ram", 1, g_iniPath);
     cfg->show_ping = GetPrivateProfileIntA("HUD", "show_ping", 1, g_iniPath);
-    cfg->show_power = GetPrivateProfileIntA("HUD", "show_power", 1, g_iniPath);
-    cfg->show_clock = GetPrivateProfileIntA("HUD", "show_clock", 1, g_iniPath);
     
     cfg->size = (HudSize)GetPrivateProfileIntA("HUD", "size", HUD_SIZE_SMALL, g_iniPath);
     if (cfg->size < 0 || cfg->size > 2) cfg->size = HUD_SIZE_SMALL;
@@ -220,10 +214,6 @@ static void save_config(const HudConfig *cfg, int x, int y) {
     WritePrivateProfileStringA("HUD", "show_ram", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->show_ping ? 1 : 0);
     WritePrivateProfileStringA("HUD", "show_ping", buf, g_iniPath);
-    snprintf(buf, sizeof(buf), "%d", cfg->show_power ? 1 : 0);
-    WritePrivateProfileStringA("HUD", "show_power", buf, g_iniPath);
-    snprintf(buf, sizeof(buf), "%d", cfg->show_clock ? 1 : 0);
-    WritePrivateProfileStringA("HUD", "show_clock", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->size);
     WritePrivateProfileStringA("HUD", "size", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->orientation);
@@ -282,9 +272,6 @@ static void show_settings_menu(HWND hWnd) {
     AppendMenuW(hModSub, MF_STRING | (g_config.show_vram ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_VRAM, L"VRAM (Mem\u00F3ria de V\u00EDdeo)");
     AppendMenuW(hModSub, MF_STRING | (g_config.show_ram ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_RAM, L"RAM");
     AppendMenuW(hModSub, MF_STRING | (g_config.show_ping ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_PING, L"Ping (Lat\u00EAncia)");
-    AppendMenuW(hModSub, MF_STRING | (g_config.show_power ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_POWER, L"Consumo GPU (Watts / TDP)");
-    AppendMenuW(hModSub, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(hModSub, MF_STRING | (g_config.show_clock ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_CLOCK, L"Rel\u00F3gio");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hModSub, L"M\u00F3dulos Vis\u00EDveis");
 
     // 2. Tamanho do HUD
@@ -545,14 +532,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     break;
                 case IDM_TOGGLE_PING:
                     g_config.show_ping = !g_config.show_ping;
-                    apply_layout_and_save(hWnd);
-                    break;
-                case IDM_TOGGLE_POWER:
-                    g_config.show_power = !g_config.show_power;
-                    apply_layout_and_save(hWnd);
-                    break;
-                case IDM_TOGGLE_CLOCK:
-                    g_config.show_clock = !g_config.show_clock;
                     apply_layout_and_save(hWnd);
                     break;
 
