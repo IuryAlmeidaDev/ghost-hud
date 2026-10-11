@@ -26,5 +26,6 @@ typedef nvmlReturn_t (*pfn_nvmlDeviceGetHandleByIndex)(unsigned int index, nvmlD
 typedef nvmlReturn_t (*pfn_nvmlDeviceGetUtilizationRates)(nvmlDevice_t device, nvmlUtilization_t *utilization);
 typedef nvmlReturn_t (*pfn_nvmlDeviceGetTemperature)(nvmlDevice_t device, int sensorType, unsigned int *temp);
 typedef nvmlReturn_t (*pfn_nvmlDeviceGetMemoryInfo)(nvmlDevice_t device, nvmlMemory_t *memory);
+typedef nvmlReturn_t (*pfn_nvmlDeviceGetPowerUsage)(nvmlDevice_t device, unsigned int *power);
 
 #endif // NVML_LITE_H

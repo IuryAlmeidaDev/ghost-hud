@@ -2,29 +2,43 @@
 #define _UNICODE
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "hardware.h"
 #include "ui.h"
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TIMER_TICK           1
+#define ID_HOTKEY_F10           10
 
-#define IDM_TOGGLE_CPU      201
-#define IDM_TOGGLE_GPU      202
-#define IDM_TOGGLE_VRAM     203
-#define IDM_TOGGLE_RAM      204
-#define IDM_TOGGLE_PING     205
-#define IDM_TOGGLE_CLOCK    206
+#define IDM_TOGGLE_CPU        201
+#define IDM_TOGGLE_GPU        202
+#define IDM_TOGGLE_VRAM       203
+#define IDM_TOGGLE_RAM        204
+#define IDM_TOGGLE_PING       205
+#define IDM_TOGGLE_POWER      206
+#define IDM_TOGGLE_CLOCK      207
 
-#define IDM_SIZE_SMALL      210
-#define IDM_SIZE_MEDIUM     211
-#define IDM_SIZE_LARGE      212
+#define IDM_SIZE_SMALL        210
+#define IDM_SIZE_MEDIUM       211
+#define IDM_SIZE_LARGE        212
 
-#define IDM_AUTOSTART       220
-#define IDM_RESET_POS       221
-#define IDM_QUIT            222
+#define IDM_ORIENT_HORIZ      215
+#define IDM_ORIENT_VERT       216
 
-// Definições nativas do Shell NotifyIcon (dispensa shellapi.h)
+#define IDM_THEME_OBSIDIAN    220
+#define IDM_THEME_BLOODMOON   221
+#define IDM_THEME_CYBERNEON   222
+#define IDM_THEME_ROYALGOLD   223
+
+#define IDM_TOGGLE_GHOST      230
+#define IDM_TOGGLE_AUTOFADE   231
+
+#define IDM_AUTOSTART         240
+#define IDM_RESET_POS         241
+#define IDM_QUIT              242
+
+// Definições nativas do Shell NotifyIcon
 #define NIM_ADD         0x00000000
 #define NIM_MODIFY      0x00000001
 #define NIM_DELETE      0x00000002
@@ -35,6 +49,14 @@
 
 #ifndef LWA_ALPHA
 #define LWA_ALPHA 0x00000002
+#endif
+
+#ifndef WS_EX_LAYERED
+#define WS_EX_LAYERED 0x00080000
+#endif
+
+#ifndef WS_EX_TRANSPARENT
+#define WS_EX_TRANSPARENT 0x00000020
 #endif
 
 typedef struct _NOTIFYICONDATAW {
@@ -50,7 +72,7 @@ typedef struct _NOTIFYICONDATAW {
 typedef BOOL (WINAPI *pfn_Shell_NotifyIconW)(DWORD dwMessage, PNOTIFYICONDATAW lpData);
 typedef BOOL (WINAPI *pfn_SetLayeredWindowAttributes)(HWND hwnd, COLORREF crKey, BYTE bAlpha, DWORD dwFlags);
 
-// Registry APIs dinâmicas para autostart (compatível com TCC sem advapi32.def)
+// Registry APIs dinâmicas para autostart
 typedef LONG (WINAPI *pfn_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
 typedef LONG (WINAPI *pfn_RegSetValueExA)(HKEY hKey, LPCSTR lpValueName, DWORD Reserved, DWORD dwType, const BYTE *lpData, DWORD cbData);
 typedef LONG (WINAPI *pfn_RegDeleteValueA)(HKEY hKey, LPCSTR lpValueName);
@@ -75,18 +97,27 @@ static HudConfig g_config = {
     .show_vram = TRUE,
     .show_ram = TRUE,
     .show_ping = TRUE,
+    .show_power = TRUE,
     .show_clock = TRUE,
     .size = HUD_SIZE_SMALL,
-    .alpha = 230
+    .orientation = HUD_ORIENT_HORIZONTAL,
+    .theme = HUD_THEME_OBSIDIAN,
+    .alpha = 230,
+    .ghost_mode = FALSE,
+    .auto_fade = FALSE
 };
 
 static HardwareMetrics g_metrics = {0};
 static NOTIFYICONDATAW g_nid = {0};
 static char g_iniPath[MAX_PATH] = {0};
+static char g_icoPath[MAX_PATH] = {0};
+static HICON g_hIconLarge = NULL;
+static HICON g_hIconSmall = NULL;
 
 static BOOL g_isDragging = FALSE;
 static POINT g_dragStartMouse = {0};
 static POINT g_dragStartWin = {0};
+static DWORD g_lastBeepTick = 0;
 
 static void init_advapi32(void) {
     if (!hAdvapi32) {
@@ -133,14 +164,17 @@ static void toggle_autostart(void) {
     }
 }
 
-static void get_ini_path(void) {
+static void get_paths(void) {
     GetModuleFileNameA(NULL, g_iniPath, MAX_PATH);
     char *lastSlash = strrchr(g_iniPath, '\\');
     if (lastSlash) {
         *(lastSlash + 1) = '\0';
+        strcpy(g_icoPath, g_iniPath);
+        strcat(g_icoPath, "ghosthud.ico");
         strcat(g_iniPath, "ghosthud.ini");
     } else {
         strcpy(g_iniPath, "ghosthud.ini");
+        strcpy(g_icoPath, "ghosthud.ico");
     }
 }
 
@@ -150,12 +184,24 @@ static void load_config(HudConfig *cfg) {
     cfg->show_vram = GetPrivateProfileIntA("HUD", "show_vram", 1, g_iniPath);
     cfg->show_ram = GetPrivateProfileIntA("HUD", "show_ram", 1, g_iniPath);
     cfg->show_ping = GetPrivateProfileIntA("HUD", "show_ping", 1, g_iniPath);
+    cfg->show_power = GetPrivateProfileIntA("HUD", "show_power", 1, g_iniPath);
     cfg->show_clock = GetPrivateProfileIntA("HUD", "show_clock", 1, g_iniPath);
+    
     cfg->size = (HudSize)GetPrivateProfileIntA("HUD", "size", HUD_SIZE_SMALL, g_iniPath);
     if (cfg->size < 0 || cfg->size > 2) cfg->size = HUD_SIZE_SMALL;
+
+    cfg->orientation = (HudOrientation)GetPrivateProfileIntA("HUD", "orientation", HUD_ORIENT_HORIZONTAL, g_iniPath);
+    if (cfg->orientation < 0 || cfg->orientation > 1) cfg->orientation = HUD_ORIENT_HORIZONTAL;
+
+    cfg->theme = (HudTheme)GetPrivateProfileIntA("HUD", "theme", HUD_THEME_OBSIDIAN, g_iniPath);
+    if (cfg->theme < 0 || cfg->theme > 3) cfg->theme = HUD_THEME_OBSIDIAN;
+
     cfg->alpha = GetPrivateProfileIntA("HUD", "alpha", 230, g_iniPath);
     if (cfg->alpha < 100) cfg->alpha = 100;
     if (cfg->alpha > 255) cfg->alpha = 255;
+
+    cfg->ghost_mode = GetPrivateProfileIntA("HUD", "ghost_mode", 0, g_iniPath);
+    cfg->auto_fade = GetPrivateProfileIntA("HUD", "auto_fade", 0, g_iniPath);
 }
 
 static void save_config(const HudConfig *cfg, int x, int y) {
@@ -174,17 +220,27 @@ static void save_config(const HudConfig *cfg, int x, int y) {
     WritePrivateProfileStringA("HUD", "show_ram", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->show_ping ? 1 : 0);
     WritePrivateProfileStringA("HUD", "show_ping", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_power ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_power", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->show_clock ? 1 : 0);
     WritePrivateProfileStringA("HUD", "show_clock", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->size);
     WritePrivateProfileStringA("HUD", "size", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->orientation);
+    WritePrivateProfileStringA("HUD", "orientation", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->theme);
+    WritePrivateProfileStringA("HUD", "theme", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", cfg->alpha);
     WritePrivateProfileStringA("HUD", "alpha", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->ghost_mode ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "ghost_mode", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->auto_fade ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "auto_fade", buf, g_iniPath);
 }
 
 static void update_tray_tip(void) {
     if (fn_Shell_NotifyIconW && g_nid.hWnd) {
-        wcscpy(g_nid.szTip, L"GhostHUD - Monitor Gamer MMORPG");
+        wcscpy(g_nid.szTip, L"GhostHUD - Monitor Gamer");
         fn_Shell_NotifyIconW(NIM_MODIFY, &g_nid);
     }
 }
@@ -200,6 +256,15 @@ static void apply_layout_and_save(HWND hWnd) {
     HRGN hRgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, 3, 3);
     SetWindowRgn(hWnd, hRgn, TRUE);
 
+    // Aplica / Remove estilo WS_EX_TRANSPARENT para Ghost Mode
+    LONG_PTR exStyle = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+    if (g_config.ghost_mode) {
+        exStyle |= WS_EX_TRANSPARENT;
+    } else {
+        exStyle &= ~WS_EX_TRANSPARENT;
+    }
+    SetWindowLongPtrW(hWnd, GWL_EXSTYLE, exStyle);
+
     save_config(&g_config, r.left, r.top);
     InvalidateRect(hWnd, NULL, TRUE);
 }
@@ -210,38 +275,50 @@ static void show_settings_menu(HWND hWnd) {
 
     HMENU hMenu = CreatePopupMenu();
 
-    // 1. Módulos Visíveis (Opções diretas com checkmarks)
-    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING | (g_config.show_cpu ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_TOGGLE_CPU, L"CPU");
-    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING | (g_config.show_gpu ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_TOGGLE_GPU, L"GPU (Temperatura)");
-    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING | (g_config.show_vram ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_TOGGLE_VRAM, L"VRAM (Mem\u00F3ria de V\u00EDdeo)");
-    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING | (g_config.show_ram ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_TOGGLE_RAM, L"RAM");
-    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING | (g_config.show_ping ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_TOGGLE_PING, L"Ping (Lat\u00EAncia)");
-    InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_STRING | (g_config.show_clock ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_TOGGLE_CLOCK, L"Rel\u00F3gio no Cabe\u00E7alho");
+    // 1. Módulos Visíveis
+    HMENU hModSub = CreatePopupMenu();
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_cpu ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_CPU, L"CPU");
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_gpu ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_GPU, L"GPU (Temperatura)");
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_vram ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_VRAM, L"VRAM (Mem\u00F3ria de V\u00EDdeo)");
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_ram ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_RAM, L"RAM");
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_ping ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_PING, L"Ping (Lat\u00EAncia)");
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_power ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_POWER, L"Consumo GPU (Watts / TDP)");
+    AppendMenuW(hModSub, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(hModSub, MF_STRING | (g_config.show_clock ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_CLOCK, L"Rel\u00F3gio");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hModSub, L"M\u00F3dulos Vis\u00EDveis");
 
-    InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-
-    // 2. Submenu de Seleção de Tamanho
+    // 2. Tamanho do HUD
     HMENU hSizeSub = CreatePopupMenu();
-    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_SMALL ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_SIZE_SMALL, L"Pequeno (Compacto)");
-    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_MEDIUM ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_SIZE_MEDIUM, L"M\u00E9dio");
-    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_LARGE ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_SIZE_LARGE, L"Grande");
-    InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hSizeSub, L"Tamanho do HUD");
+    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_SMALL ? MF_CHECKED : MF_UNCHECKED), IDM_SIZE_SMALL, L"Pequeno (Compacto)");
+    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_MEDIUM ? MF_CHECKED : MF_UNCHECKED), IDM_SIZE_MEDIUM, L"M\u00E9dio");
+    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_LARGE ? MF_CHECKED : MF_UNCHECKED), IDM_SIZE_LARGE, L"Grande");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSizeSub, L"Tamanho do HUD");
 
-    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenuW(hMenu, 9, MF_BYPOSITION | MF_STRING | (is_autostart_enabled() ? MF_CHECKED : MF_UNCHECKED), 
-                IDM_AUTOSTART, L"Iniciar com o Windows");
-    InsertMenuW(hMenu, 10, MF_BYPOSITION | MF_STRING, IDM_RESET_POS, L"Resetar Posi\u00E7\u00E3o");
-    InsertMenuW(hMenu, 11, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenuW(hMenu, 12, MF_BYPOSITION | MF_STRING, IDM_QUIT, L"Sair");
+    // 3. Orientação
+    HMENU hOrientSub = CreatePopupMenu();
+    AppendMenuW(hOrientSub, MF_STRING | (g_config.orientation == HUD_ORIENT_HORIZONTAL ? MF_CHECKED : MF_UNCHECKED), IDM_ORIENT_HORIZ, L"Horizontal (Barra)");
+    AppendMenuW(hOrientSub, MF_STRING | (g_config.orientation == HUD_ORIENT_VERTICAL ? MF_CHECKED : MF_UNCHECKED), IDM_ORIENT_VERT, L"Vertical (Coluna Lateral)");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hOrientSub, L"Orienta\u00E7\u00E3o");
+
+    // 4. Temas Visuais MMORPG
+    HMENU hThemeSub = CreatePopupMenu();
+    AppendMenuW(hThemeSub, MF_STRING | (g_config.theme == HUD_THEME_OBSIDIAN ? MF_CHECKED : MF_UNCHECKED), IDM_THEME_OBSIDIAN, L"Obsidian Slate (Cl\u00E1ssico)");
+    AppendMenuW(hThemeSub, MF_STRING | (g_config.theme == HUD_THEME_BLOODMOON ? MF_CHECKED : MF_UNCHECKED), IDM_THEME_BLOODMOON, L"Blood Moon (Carmesim)");
+    AppendMenuW(hThemeSub, MF_STRING | (g_config.theme == HUD_THEME_CYBERNEON ? MF_CHECKED : MF_UNCHECKED), IDM_THEME_CYBERNEON, L"Cyber Neon (Ciano / Roxo)");
+    AppendMenuW(hThemeSub, MF_STRING | (g_config.theme == HUD_THEME_ROYALGOLD ? MF_CHECKED : MF_UNCHECKED), IDM_THEME_ROYALGOLD, L"Royal Gold (Ouro Met\u00E1lico)");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hThemeSub, L"Tema Visual");
+
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+
+    // 5. Recursos Gamer
+    AppendMenuW(hMenu, MF_STRING | (g_config.ghost_mode ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_GHOST, L"Modo Fantasma (Cliques Atravessam) [F10]");
+    AppendMenuW(hMenu, MF_STRING | (g_config.auto_fade ? MF_CHECKED : MF_UNCHECKED), IDM_TOGGLE_AUTOFADE, L"Auto-Fade (Esmaecer fora de foco)");
+
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(hMenu, MF_STRING | (is_autostart_enabled() ? MF_CHECKED : MF_UNCHECKED), IDM_AUTOSTART, L"Iniciar com o Windows");
+    AppendMenuW(hMenu, MF_STRING, IDM_RESET_POS, L"Resetar Posi\u00E7\u00E3o");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(hMenu, MF_STRING, IDM_QUIT, L"Sair");
 
     SetForegroundWindow(hWnd);
     TrackPopupMenuEx(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, hWnd, NULL);
@@ -255,6 +332,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ui_init();
             hardware_update(&g_metrics);
             SetTimer(hWnd, ID_TIMER_TICK, 1000, NULL);
+            RegisterHotKey(hWnd, ID_HOTKEY_F10, 0, VK_F10);
+            return 0;
+        }
+
+        case WM_HOTKEY: {
+            if (wParam == ID_HOTKEY_F10) {
+                g_config.ghost_mode = !g_config.ghost_mode;
+                apply_layout_and_save(hWnd);
+            }
             return 0;
         }
 
@@ -263,6 +349,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_SETCURSOR: {
+            if (g_config.ghost_mode) return FALSE;
+
             POINT pt;
             GetCursorPos(&pt);
             ScreenToClient(hWnd, &pt);
@@ -282,6 +370,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_MOUSEWHEEL: {
+            if (g_config.ghost_mode) return 0;
+
             short zDelta = (short)HIWORD(wParam);
             if (zDelta > 0) {
                 g_config.alpha += 15;
@@ -302,6 +392,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_TIMER: {
             if (wParam == ID_TIMER_TICK) {
                 hardware_update(&g_metrics);
+
+                // Alerta Sonoro Crítico se GPU bater 85°C
+                if (g_metrics.gpu_temp >= 85) {
+                    DWORD now = GetTickCount();
+                    if (now - g_lastBeepTick > 10000) {
+                        MessageBeep(MB_ICONWARNING);
+                        g_lastBeepTick = now;
+                    }
+                }
+
+                // Auto-fade suave se ativado
+                if (g_config.auto_fade && !g_isDragging && !g_config.ghost_mode) {
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    RECT r;
+                    GetWindowRect(hWnd, &r);
+                    InflateRect(&r, 30, 30);
+                    BOOL hover = PtInRect(&r, pt);
+                    BYTE target_alpha = hover ? (BYTE)g_config.alpha : 75;
+                    if (fn_SetLayeredWindowAttributes) {
+                        fn_SetLayeredWindowAttributes(hWnd, 0, target_alpha, LWA_ALPHA);
+                    }
+                }
+
                 InvalidateRect(hWnd, NULL, FALSE);
             }
             return 0;
@@ -318,11 +432,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_RBUTTONUP: {
-            show_settings_menu(hWnd);
+            if (!g_config.ghost_mode) {
+                show_settings_menu(hWnd);
+            }
             return 0;
         }
 
         case WM_LBUTTONDOWN: {
+            if (g_config.ghost_mode) return 0;
+
             int mouseX = (short)LOWORD(lParam);
             int mouseY = (short)HIWORD(lParam);
 
@@ -332,7 +450,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             int cur_w, cur_h, cur_header_h;
             ui_get_window_size(&g_config, &cur_w, &cur_h, &cur_header_h);
 
-            // Clique na Engrenagem [⚙] abre o menu de personalização
+            // Clique na Engrenagem [⚙]
             if (UI_IS_GEAR_BTN(mouseX, mouseY, win_w, cur_header_h)) {
                 show_settings_menu(hWnd);
                 return 0;
@@ -353,6 +471,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 GetCursorPos(&pt);
                 int nx = g_dragStartWin.x + (pt.x - g_dragStartMouse.x);
                 int ny = g_dragStartWin.y + (pt.y - g_dragStartMouse.y);
+
+                // Snap Magnético nas Bordas da Tela (Área de trabalho útil)
+                RECT rcWork;
+                SystemParametersInfoA(SPI_GETWORKAREA, 0, &rcWork, 0);
+                RECT rWin;
+                GetWindowRect(hWnd, &rWin);
+                int w = rWin.right - rWin.left;
+                int h = rWin.bottom - rWin.top;
+
+                int snapDist = 18;
+                int margin = 8;
+
+                if (abs(nx - (rcWork.left + margin)) < snapDist) {
+                    nx = rcWork.left + margin;
+                } else if (abs((nx + w) - (rcWork.right - margin)) < snapDist) {
+                    nx = rcWork.right - margin - w;
+                }
+
+                if (abs(ny - (rcWork.top + margin)) < snapDist) {
+                    ny = rcWork.top + margin;
+                } else if (abs((ny + h) - (rcWork.bottom - margin)) < snapDist) {
+                    ny = rcWork.bottom - margin - h;
+                }
+
                 SetWindowPos(hWnd, HWND_TOPMOST, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
             return 0;
@@ -405,6 +547,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     g_config.show_ping = !g_config.show_ping;
                     apply_layout_and_save(hWnd);
                     break;
+                case IDM_TOGGLE_POWER:
+                    g_config.show_power = !g_config.show_power;
+                    apply_layout_and_save(hWnd);
+                    break;
                 case IDM_TOGGLE_CLOCK:
                     g_config.show_clock = !g_config.show_clock;
                     apply_layout_and_save(hWnd);
@@ -420,6 +566,44 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     break;
                 case IDM_SIZE_LARGE:
                     g_config.size = HUD_SIZE_LARGE;
+                    apply_layout_and_save(hWnd);
+                    break;
+
+                case IDM_ORIENT_HORIZ:
+                    g_config.orientation = HUD_ORIENT_HORIZONTAL;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_ORIENT_VERT:
+                    g_config.orientation = HUD_ORIENT_VERTICAL;
+                    apply_layout_and_save(hWnd);
+                    break;
+
+                case IDM_THEME_OBSIDIAN:
+                    g_config.theme = HUD_THEME_OBSIDIAN;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_THEME_BLOODMOON:
+                    g_config.theme = HUD_THEME_BLOODMOON;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_THEME_CYBERNEON:
+                    g_config.theme = HUD_THEME_CYBERNEON;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_THEME_ROYALGOLD:
+                    g_config.theme = HUD_THEME_ROYALGOLD;
+                    apply_layout_and_save(hWnd);
+                    break;
+
+                case IDM_TOGGLE_GHOST:
+                    g_config.ghost_mode = !g_config.ghost_mode;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_TOGGLE_AUTOFADE:
+                    g_config.auto_fade = !g_config.auto_fade;
+                    if (!g_config.auto_fade && fn_SetLayeredWindowAttributes) {
+                        fn_SetLayeredWindowAttributes(hWnd, 0, (BYTE)g_config.alpha, LWA_ALPHA);
+                    }
                     apply_layout_and_save(hWnd);
                     break;
 
@@ -447,6 +631,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_DESTROY: {
             KillTimer(hWnd, ID_TIMER_TICK);
+            UnregisterHotKey(hWnd, ID_HOTKEY_F10);
             if (fn_Shell_NotifyIconW) {
                 fn_Shell_NotifyIconW(NIM_DELETE, &g_nid);
             }
@@ -474,7 +659,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         hInstance = GetModuleHandleW(NULL);
     }
 
-    get_ini_path();
+    get_paths();
     load_config(&g_config);
 
     // Carrega User32 e Shell32 dinamicamente
@@ -488,6 +673,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         fn_Shell_NotifyIconW = (pfn_Shell_NotifyIconW)GetProcAddress(hShell32, "Shell_NotifyIconW");
     }
 
+    // Carrega ícone oficial GhostHUD
+    g_hIconLarge = (HICON)LoadImageA(NULL, g_icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+    g_hIconSmall = (HICON)LoadImageA(NULL, g_icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+    if (!g_hIconLarge) g_hIconLarge = LoadIcon(NULL, IDI_APPLICATION);
+    if (!g_hIconSmall) g_hIconSmall = LoadIcon(NULL, IDI_APPLICATION);
+
     // Configurações salvas de coordenadas
     int start_x = GetPrivateProfileIntA("HUD", "x", 120, g_iniPath);
     int start_y = GetPrivateProfileIntA("HUD", "y", 80, g_iniPath);
@@ -498,12 +689,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.style = 0;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
+    wc.hIcon = g_hIconLarge;
+    wc.hIconSm = g_hIconSmall;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.lpszClassName = L"GhostHudWindowClass";
     RegisterClassExW(&wc);
 
-    // Estilos de janela: Sem bordas (WS_POPUP), Topmost, Layered, Fora do Alt+Tab
+    // Estilos de janela
     DWORD exStyle = WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
+    if (g_config.ghost_mode) {
+        exStyle |= WS_EX_TRANSPARENT;
+    }
 
     int init_w, init_h, init_header_h;
     ui_get_window_size(&g_config, &init_w, &init_h, &init_header_h);
@@ -541,7 +737,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         g_nid.uID = 1;
         g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         g_nid.uCallbackMessage = WM_TRAYICON;
-        g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+        g_nid.hIcon = g_hIconSmall;
         update_tray_tip();
         fn_Shell_NotifyIconW(NIM_ADD, &g_nid);
     }

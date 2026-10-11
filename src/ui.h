@@ -10,15 +10,32 @@ typedef enum {
     HUD_SIZE_LARGE = 2
 } HudSize;
 
+typedef enum {
+    HUD_ORIENT_HORIZONTAL = 0,
+    HUD_ORIENT_VERTICAL = 1
+} HudOrientation;
+
+typedef enum {
+    HUD_THEME_OBSIDIAN = 0,
+    HUD_THEME_BLOODMOON = 1,
+    HUD_THEME_CYBERNEON = 2,
+    HUD_THEME_ROYALGOLD = 3
+} HudTheme;
+
 typedef struct {
     BOOL show_cpu;
     BOOL show_gpu;
     BOOL show_vram;
     BOOL show_ram;
     BOOL show_ping;
+    BOOL show_power;
     BOOL show_clock;
     HudSize size;
+    HudOrientation orientation;
+    HudTheme theme;
     int alpha;
+    BOOL ghost_mode;
+    BOOL auto_fade;
 } HudConfig;
 
 #define UI_IS_GEAR_BTN(x, y, width, header_h) ( \

@@ -5,25 +5,78 @@ static HFONT hFontTitle[3] = {NULL, NULL, NULL};
 static HFONT hFontLabel[3] = {NULL, NULL, NULL};
 static HFONT hFontValue[3] = {NULL, NULL, NULL};
 
-// Paleta de Cores Obsidian Slate do Jogo
-#define COLOR_BG          RGB(15, 17, 21)      // Fundo obsidian slate escuro (#0F1115)
-#define COLOR_HEADER_BG   RGB(19, 23, 30)      // Fundo do cabeçalho (#13171E)
-#define COLOR_SLOT_BG     RGB(22, 27, 36)      // Fundo dos módulos/slots (#161B24)
-#define COLOR_SLOT_BORDER RGB(34, 42, 54)      // Borda interna de 1px dos slots (#222A36)
-#define COLOR_BORDER      RGB(42, 50, 64)      // Borda metálica padrão da janela (#2A3240)
-#define COLOR_BORDER_HOT  RGB(255, 71, 87)     // Borda de alerta térmico para GPU quente (#FF4757)
+// Paleta base e térmica
 #define COLOR_DIVIDER     RGB(28, 34, 44)      // Separador horizontal sutil (#1C222C)
 #define COLOR_TRACK       RGB(14, 17, 23)      // Trilha escura rebaixada das barras (#0E1117)
-
-#define COLOR_TITLE       RGB(220, 226, 236)   // Branco suave (#DCE2EC)
-#define COLOR_LABEL       RGB(124, 138, 156)   // Cinza aço dos rótulos (#7C8A9C)
-#define COLOR_TIME        RGB(148, 162, 180)   // Cinza claro para o relógio (#94A2B4)
+#define COLOR_BORDER_HOT  RGB(255, 71, 87)     // Borda de alerta térmico para GPU quente (#FF4757)
 
 // Escala de Cores Vibrante do HUD do Jogo:
 #define COLOR_GREEN       RGB(46, 213, 115)    // 🟢 Verde esmeralda (#2ED573)
 #define COLOR_YELLOW      RGB(255, 190, 118)   // 🟡 Ouro suave (#FFBE76)
 #define COLOR_ORANGE      RGB(255, 121, 63)    // 🟠 Laranja quente (#FF793F)
 #define COLOR_RED         RGB(255, 71, 87)     // 🔴 Vermelho carmesim (#FF4757)
+
+typedef struct {
+    COLORREF bg;
+    COLORREF header_bg;
+    COLORREF slot_bg;
+    COLORREF slot_border;
+    COLORREF border;
+    COLORREF title;
+    COLORREF label;
+    COLORREF time;
+} ThemeColors;
+
+static ThemeColors get_theme_colors(HudTheme theme) {
+    ThemeColors tc;
+    switch (theme) {
+        case HUD_THEME_BLOODMOON:
+            tc.bg          = RGB(18, 11, 14);
+            tc.header_bg   = RGB(26, 14, 19);
+            tc.slot_bg     = RGB(32, 17, 23);
+            tc.slot_border = RGB(56, 25, 33);
+            tc.border      = RGB(96, 32, 45);
+            tc.title       = RGB(250, 205, 215);
+            tc.label       = RGB(180, 115, 128);
+            tc.time        = RGB(210, 145, 158);
+            break;
+
+        case HUD_THEME_CYBERNEON:
+            tc.bg          = RGB(9, 13, 21);
+            tc.header_bg   = RGB(13, 19, 31);
+            tc.slot_bg     = RGB(17, 26, 42);
+            tc.slot_border = RGB(28, 48, 76);
+            tc.border      = RGB(0, 190, 225);
+            tc.title       = RGB(0, 240, 255);
+            tc.label       = RGB(105, 155, 198);
+            tc.time        = RGB(140, 190, 230);
+            break;
+
+        case HUD_THEME_ROYALGOLD:
+            tc.bg          = RGB(17, 16, 13);
+            tc.header_bg   = RGB(25, 23, 17);
+            tc.slot_bg     = RGB(31, 28, 20);
+            tc.slot_border = RGB(62, 54, 34);
+            tc.border      = RGB(195, 160, 75);
+            tc.title       = RGB(250, 230, 175);
+            tc.label       = RGB(170, 150, 110);
+            tc.time        = RGB(215, 190, 140);
+            break;
+
+        case HUD_THEME_OBSIDIAN:
+        default:
+            tc.bg          = RGB(15, 17, 21);
+            tc.header_bg   = RGB(19, 23, 30);
+            tc.slot_bg     = RGB(22, 27, 36);
+            tc.slot_border = RGB(34, 42, 54);
+            tc.border      = RGB(42, 50, 64);
+            tc.title       = RGB(220, 226, 236);
+            tc.label       = RGB(124, 138, 156);
+            tc.time        = RGB(148, 162, 180);
+            break;
+    }
+    return tc;
+}
 
 static COLORREF get_status_color(int usage_pct, int temp_c) {
     int score = usage_pct;
@@ -42,10 +95,17 @@ static COLORREF get_status_color(int usage_pct, int temp_c) {
 }
 
 static COLORREF get_ping_color(int ms) {
-    if (ms <= 0) return COLOR_LABEL;
+    if (ms <= 0) return RGB(124, 138, 156);
     if (ms <= 45) return COLOR_GREEN;
     if (ms <= 80) return COLOR_YELLOW;
     if (ms <= 130) return COLOR_ORANGE;
+    return COLOR_RED;
+}
+
+static COLORREF get_power_color(int watts) {
+    if (watts <= 140) return COLOR_GREEN;
+    if (watts <= 210) return COLOR_YELLOW;
+    if (watts <= 265) return COLOR_ORANGE;
     return COLOR_RED;
 }
 
@@ -101,6 +161,7 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
     if (cfg->show_vram) active_slots++;
     if (cfg->show_ram) active_slots++;
     if (cfg->show_ping) active_slots++;
+    if (cfg->show_power) active_slots++;
 
     int slot_w, slot_h, slot_gap, header_h, pad_x, pad_y;
     int min_hdr_w;
@@ -136,9 +197,16 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
             break;
     }
 
-    int total_slots_w = (pad_x * 2) + (active_slots * slot_w) + ((active_slots > 1 ? active_slots - 1 : 0) * slot_gap);
-    int final_w = (total_slots_w > min_hdr_w) ? total_slots_w : min_hdr_w;
-    int final_h = (active_slots > 0) ? (header_h + slot_h + pad_y + 2) : (header_h + 3);
+    int final_w, final_h;
+    if (cfg->orientation == HUD_ORIENT_VERTICAL) {
+        final_w = (pad_x * 2) + slot_w;
+        if (final_w < 56) final_w = 56;
+        final_h = header_h + (pad_y * 2) + (active_slots * slot_h) + ((active_slots > 1 ? active_slots - 1 : 0) * slot_gap);
+    } else {
+        int total_slots_w = (pad_x * 2) + (active_slots * slot_w) + ((active_slots > 1 ? active_slots - 1 : 0) * slot_gap);
+        final_w = (total_slots_w > min_hdr_w) ? total_slots_w : min_hdr_w;
+        final_h = (active_slots > 0) ? (header_h + slot_h + pad_y + 2) : (header_h + 3);
+    }
 
     if (out_width) *out_width = final_w;
     if (out_height) *out_height = final_h;
@@ -163,19 +231,19 @@ static void draw_gauge_bar(HDC hdc, int x, int y, int width, int height, int pct
     }
 }
 
-static void draw_gear_icon(HDC hdc, int cx, int cy, int r, COLORREF color) {
+static void draw_gear_icon(HDC hdc, int cx, int cy, int r, COLORREF color, COLORREF hdr_bg) {
     HPEN hPen = CreatePen(PS_SOLID, 1, color);
     HPEN oldPen = (HPEN)SelectObject(hdc, hPen);
 
     // 8 dentes radiantes
     MoveToEx(hdc, cx - r, cy, NULL); LineTo(hdc, cx + r + 1, cy);
-    MoveToEx(hdc, cx, cy - r, NULL); LineTo(hdc, cx, cy + r + 1);
+    MoveToEx(hdc, cx, cy - r, NULL); LineTo(hdc, cx + r + 1, cy);
     int d = (r * 7) / 10;
     MoveToEx(hdc, cx - d, cy - d, NULL); LineTo(hdc, cx + d + 1, cy + d + 1);
     MoveToEx(hdc, cx - d, cy + d, NULL); LineTo(hdc, cx + d + 1, cy - d - 1);
 
     // Anel / furo central da engrenagem
-    HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
+    HBRUSH hBrushHdr = CreateSolidBrush(hdr_bg);
     HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, hBrushHdr);
     int inner_r = (r > 4) ? 3 : 2;
     Ellipse(hdc, cx - inner_r, cy - inner_r, cx + inner_r + 1, cy + inner_r + 1);
@@ -187,12 +255,13 @@ static void draw_gear_icon(HDC hdc, int cx, int cy, int r, COLORREF color) {
 }
 
 static void draw_metric_slot(HDC memDC, int x, int y, int w, int h, 
-                             const char *label, const char *value, int pct, COLORREF val_color, HudSize size) {
+                             const char *label, const char *value, int pct, COLORREF val_color, 
+                             HudSize size, const ThemeColors *tc) {
     int s_idx = (size >= 0 && size <= 2) ? size : 0;
 
     // 1. Fundo e contorno do slot
-    HBRUSH hBrushSlot = CreateSolidBrush(COLOR_SLOT_BG);
-    HPEN hPenSlot = CreatePen(PS_SOLID, 1, COLOR_SLOT_BORDER);
+    HBRUSH hBrushSlot = CreateSolidBrush(tc->slot_bg);
+    HPEN hPenSlot = CreatePen(PS_SOLID, 1, tc->slot_border);
     HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, hBrushSlot);
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenSlot);
 
@@ -207,7 +276,7 @@ static void draw_metric_slot(HDC memDC, int x, int y, int w, int h,
     int lbl_h = (s_idx == 0) ? 9 : ((s_idx == 1) ? 11 : 13);
     RECT rLbl = { x, y + 1, x + w, y + 1 + lbl_h };
     SelectObject(memDC, hFontLabel[s_idx]);
-    SetTextColor(memDC, COLOR_LABEL);
+    SetTextColor(memDC, tc->label);
     DrawTextA(memDC, label, -1, &rLbl, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
     // 3. Valor principal
@@ -231,13 +300,14 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
 
     HudSize size = (config->size >= 0 && config->size <= 2) ? config->size : HUD_SIZE_SMALL;
     int s_idx = size;
+    ThemeColors tc = get_theme_colors(config->theme);
 
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, width, height);
     HBITMAP oldBitmap = (HBITMAP)SelectObject(memDC, memBitmap);
 
-    // 1. Fundo geral Obsidian Slate (#0F1115)
-    HBRUSH hBrushBg = CreateSolidBrush(COLOR_BG);
+    // 1. Fundo geral do Tema
+    HBRUSH hBrushBg = CreateSolidBrush(tc.bg);
     RECT rClient = { 0, 0, width, height };
     FillRect(memDC, &rClient, hBrushBg);
     DeleteObject(hBrushBg);
@@ -256,39 +326,43 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
             break;
     }
 
-    // 2. Cabeçalho Integrado (#13171E)
+    // 2. Cabeçalho Integrado
     RECT rHdr = { 2, 2, width - 2, header_h };
-    HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
+    HBRUSH hBrushHdr = CreateSolidBrush(tc.header_bg);
     FillRect(memDC, &rHdr, hBrushHdr);
     DeleteObject(hBrushHdr);
 
     SetBkMode(memDC, TRANSPARENT);
     SelectObject(memDC, hFontTitle[s_idx]);
 
-    // Título à esquerda
-    SetTextColor(memDC, COLOR_TITLE);
-    int title_w = (s_idx == 0) ? 58 : ((s_idx == 1) ? 72 : 88);
-    RECT rTitle = { pad_x + 2, 1, pad_x + 2 + title_w, header_h };
-    DrawTextA(memDC, "GHOST HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    // Título
+    SetTextColor(memDC, tc.title);
+    if (config->orientation == HUD_ORIENT_VERTICAL) {
+        RECT rTitle = { pad_x + 1, 1, width - 20, header_h };
+        DrawTextA(memDC, "HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    } else {
+        int title_w = (s_idx == 0) ? 58 : ((s_idx == 1) ? 72 : 88);
+        RECT rTitle = { pad_x + 2, 1, pad_x + 2 + title_w, header_h };
+        DrawTextA(memDC, "GHOST HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    // Relógio Digital (se ativado)
-    if (config->show_clock) {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
-        char timeBuf[32];
-        snprintf(timeBuf, sizeof(timeBuf), "\x95  %02d:%02d", st.wHour, st.wMinute);
-        SetTextColor(memDC, COLOR_TIME);
-        RECT rClock = { pad_x + 2 + title_w + 4, 1, width - 22, header_h };
-        DrawTextA(memDC, timeBuf, -1, &rClock, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        if (config->show_clock) {
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            char timeBuf[32];
+            snprintf(timeBuf, sizeof(timeBuf), "\x95  %02d:%02d", st.wHour, st.wMinute);
+            SetTextColor(memDC, tc.time);
+            RECT rClock = { pad_x + 2 + title_w + 4, 1, width - 22, header_h };
+            DrawTextA(memDC, timeBuf, -1, &rClock, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        }
     }
 
-    // Ícone da Engrenagem [⚙] no canto superior direito
+    // Ícone da Engrenagem [⚙]
     int gear_r = (s_idx == 0) ? 4 : ((s_idx == 1) ? 5 : 6);
     int gear_cx = width - 11;
     int gear_cy = header_h / 2 + 1;
-    draw_gear_icon(memDC, gear_cx, gear_cy, gear_r, COLOR_TITLE);
+    draw_gear_icon(memDC, gear_cx, gear_cy, gear_r, tc.title, tc.header_bg);
 
-    // Linha divisória horizontal sutil (#1C222C)
+    // Divisória horizontal sutil
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenDiv);
     MoveToEx(memDC, 2, header_h, NULL);
@@ -296,80 +370,118 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
     SelectObject(memDC, oldPen);
     DeleteObject(hPenDiv);
 
-    // 3. Renderização Dinâmica dos Módulos/Slots
+    // 3. Renderização dos Módulos (Horizontal ou Vertical)
     int active_slots = 0;
     if (config->show_cpu) active_slots++;
     if (config->show_gpu) active_slots++;
     if (config->show_vram) active_slots++;
     if (config->show_ram) active_slots++;
     if (config->show_ping) active_slots++;
+    if (config->show_power) active_slots++;
 
     if (active_slots > 0) {
-        int slot_y = header_h + 2;
-        int slot_h = height - slot_y - pad_y;
-        int total_gaps = (active_slots - 1) * slot_gap;
-        int available_w = width - (pad_x * 2) - total_gaps;
-        int slot_w = available_w / active_slots;
-        int extra_pixels = available_w % active_slots;
-
-        int cur_x = pad_x;
         char buf[32];
 
-        // CPU
-        if (config->show_cpu) {
-            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
-            int cpu = metrics ? metrics->cpu_usage : 0;
-            snprintf(buf, sizeof(buf), "%d%%", cpu);
-            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
-                             "CPU", buf, cpu, get_status_color(cpu, 0), size);
-            cur_x += w_this + slot_gap;
-        }
+        if (config->orientation == HUD_ORIENT_VERTICAL) {
+            // Empilhamento Vertical
+            int slot_w = width - (pad_x * 2);
+            int slot_h = (size == HUD_SIZE_SMALL) ? 26 : ((size == HUD_SIZE_MEDIUM) ? 33 : 40);
+            int cur_y = header_h + pad_y;
 
-        // GPU
-        if (config->show_gpu) {
-            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
-            int gpu = metrics ? metrics->gpu_usage : 0;
-            int temp = metrics ? metrics->gpu_temp : 0;
-            snprintf(buf, sizeof(buf), "%d\xB0" "C", temp);
-            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
-                             "GPU", buf, gpu, get_status_color(gpu, temp), size);
-            cur_x += w_this + slot_gap;
-        }
+            #define DRAW_SLOT_V(label, val_str, pct, val_col) do { \
+                draw_metric_slot(memDC, pad_x, cur_y, slot_w, slot_h, label, val_str, pct, val_col, size, &tc); \
+                cur_y += slot_h + slot_gap; \
+            } while(0)
 
-        // VRAM
-        if (config->show_vram) {
-            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
-            int vram = metrics ? metrics->vram_usage : 0;
-            snprintf(buf, sizeof(buf), "%d%%", vram);
-            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
-                             "VRAM", buf, vram, get_status_color(vram, 0), size);
-            cur_x += w_this + slot_gap;
-        }
+            if (config->show_cpu) {
+                int cpu = metrics ? metrics->cpu_usage : 0;
+                snprintf(buf, sizeof(buf), "%d%%", cpu);
+                DRAW_SLOT_V("CPU", buf, cpu, get_status_color(cpu, 0));
+            }
+            if (config->show_gpu) {
+                int gpu = metrics ? metrics->gpu_usage : 0;
+                int temp = metrics ? metrics->gpu_temp : 0;
+                snprintf(buf, sizeof(buf), "%d\xB0" "C", temp);
+                DRAW_SLOT_V("GPU", buf, gpu, get_status_color(gpu, temp));
+            }
+            if (config->show_vram) {
+                int vram = metrics ? metrics->vram_usage : 0;
+                snprintf(buf, sizeof(buf), "%d%%", vram);
+                DRAW_SLOT_V("VRAM", buf, vram, get_status_color(vram, 0));
+            }
+            if (config->show_ram) {
+                int ram = metrics ? metrics->ram_usage : 0;
+                snprintf(buf, sizeof(buf), "%d%%", ram);
+                DRAW_SLOT_V("RAM", buf, ram, get_status_color(ram, 0));
+            }
+            if (config->show_ping) {
+                int ping = metrics ? metrics->ping_ms : 0;
+                if (ping > 0) snprintf(buf, sizeof(buf), "%dms", ping);
+                else snprintf(buf, sizeof(buf), "--");
+                DRAW_SLOT_V("PING", buf, ping > 150 ? 100 : (ping * 100) / 150, get_ping_color(ping));
+            }
+            if (config->show_power) {
+                int watts = metrics ? metrics->gpu_power_w : 0;
+                snprintf(buf, sizeof(buf), "%dW", watts);
+                DRAW_SLOT_V("PWR", buf, (watts * 100) / 290, get_power_color(watts));
+            }
+            #undef DRAW_SLOT_V
 
-        // RAM
-        if (config->show_ram) {
-            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
-            int ram = metrics ? metrics->ram_usage : 0;
-            snprintf(buf, sizeof(buf), "%d%%", ram);
-            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
-                             "RAM", buf, ram, get_status_color(ram, 0), size);
-            cur_x += w_this + slot_gap;
-        }
+        } else {
+            // Linha Horizontal
+            int slot_y = header_h + 2;
+            int slot_h = height - slot_y - pad_y;
+            int total_gaps = (active_slots - 1) * slot_gap;
+            int available_w = width - (pad_x * 2) - total_gaps;
+            int slot_w = available_w / active_slots;
+            int extra_pixels = available_w % active_slots;
 
-        // PING
-        if (config->show_ping) {
-            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
-            int ping = metrics ? metrics->ping_ms : 0;
-            if (ping > 0) snprintf(buf, sizeof(buf), "%dms", ping);
-            else snprintf(buf, sizeof(buf), "--");
-            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
-                             "PING", buf, ping > 150 ? 100 : (ping * 100) / 150, get_ping_color(ping), size);
-            cur_x += w_this + slot_gap;
+            int cur_x = pad_x;
+
+            #define DRAW_SLOT_H(label, val_str, pct, val_col) do { \
+                int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0); \
+                draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, label, val_str, pct, val_col, size, &tc); \
+                cur_x += w_this + slot_gap; \
+            } while(0)
+
+            if (config->show_cpu) {
+                int cpu = metrics ? metrics->cpu_usage : 0;
+                snprintf(buf, sizeof(buf), "%d%%", cpu);
+                DRAW_SLOT_H("CPU", buf, cpu, get_status_color(cpu, 0));
+            }
+            if (config->show_gpu) {
+                int gpu = metrics ? metrics->gpu_usage : 0;
+                int temp = metrics ? metrics->gpu_temp : 0;
+                snprintf(buf, sizeof(buf), "%d\xB0" "C", temp);
+                DRAW_SLOT_H("GPU", buf, gpu, get_status_color(gpu, temp));
+            }
+            if (config->show_vram) {
+                int vram = metrics ? metrics->vram_usage : 0;
+                snprintf(buf, sizeof(buf), "%d%%", vram);
+                DRAW_SLOT_H("VRAM", buf, vram, get_status_color(vram, 0));
+            }
+            if (config->show_ram) {
+                int ram = metrics ? metrics->ram_usage : 0;
+                snprintf(buf, sizeof(buf), "%d%%", ram);
+                DRAW_SLOT_H("RAM", buf, ram, get_status_color(ram, 0));
+            }
+            if (config->show_ping) {
+                int ping = metrics ? metrics->ping_ms : 0;
+                if (ping > 0) snprintf(buf, sizeof(buf), "%dms", ping);
+                else snprintf(buf, sizeof(buf), "--");
+                DRAW_SLOT_H("PING", buf, ping > 150 ? 100 : (ping * 100) / 150, get_ping_color(ping));
+            }
+            if (config->show_power) {
+                int watts = metrics ? metrics->gpu_power_w : 0;
+                snprintf(buf, sizeof(buf), "%dW", watts);
+                DRAW_SLOT_H("PWR", buf, (watts * 100) / 290, get_power_color(watts));
+            }
+            #undef DRAW_SLOT_H
         }
     }
 
     // 4. Borda Externa (com Alerta Térmico se GPU >= 82°C)
-    COLORREF borderColor = COLOR_BORDER;
+    COLORREF borderColor = tc.border;
     if (metrics && metrics->gpu_temp >= 82) {
         borderColor = COLOR_BORDER_HOT;
     }

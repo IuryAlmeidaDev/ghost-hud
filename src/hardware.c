@@ -24,6 +24,7 @@ static pfn_nvmlDeviceGetHandleByIndex fn_nvmlDeviceGetHandleByIndex = NULL;
 static pfn_nvmlDeviceGetUtilizationRates fn_nvmlDeviceGetUtilizationRates = NULL;
 static pfn_nvmlDeviceGetTemperature fn_nvmlDeviceGetTemperature = NULL;
 static pfn_nvmlDeviceGetMemoryInfo fn_nvmlDeviceGetMemoryInfo = NULL;
+static pfn_nvmlDeviceGetPowerUsage fn_nvmlDeviceGetPowerUsage = NULL;
 static BOOL nvml_ready = FALSE;
 
 // Estruturas e ponteiros dinâmicos para ICMP (Ping de Rede)
@@ -130,6 +131,7 @@ void hardware_init(void) {
         fn_nvmlDeviceGetUtilizationRates = (pfn_nvmlDeviceGetUtilizationRates)GetProcAddress(hNvml, "nvmlDeviceGetUtilizationRates");
         fn_nvmlDeviceGetTemperature = (pfn_nvmlDeviceGetTemperature)GetProcAddress(hNvml, "nvmlDeviceGetTemperature");
         fn_nvmlDeviceGetMemoryInfo = (pfn_nvmlDeviceGetMemoryInfo)GetProcAddress(hNvml, "nvmlDeviceGetMemoryInfo");
+        fn_nvmlDeviceGetPowerUsage = (pfn_nvmlDeviceGetPowerUsage)GetProcAddress(hNvml, "nvmlDeviceGetPowerUsage");
 
         if (fn_nvmlInit && fn_nvmlDeviceGetHandleByIndex && fn_nvmlDeviceGetUtilizationRates && fn_nvmlDeviceGetTemperature) {
             if (fn_nvmlInit() == NVML_SUCCESS) {
@@ -245,12 +247,23 @@ void hardware_update(HardwareMetrics *out) {
                 }
             }
         }
+        if (fn_nvmlDeviceGetPowerUsage) {
+            unsigned int power_mw = 0;
+            if (fn_nvmlDeviceGetPowerUsage(gpu_device, &power_mw) == NVML_SUCCESS) {
+                out->gpu_power_w = (int)(power_mw / 1000);
+            } else {
+                out->gpu_power_w = 0;
+            }
+        } else {
+            out->gpu_power_w = 0;
+        }
     } else {
         out->gpu_usage = 0;
         out->gpu_temp = 0;
         out->vram_used_mb = 0;
         out->vram_total_mb = 0;
         out->vram_usage = 0;
+        out->gpu_power_w = 0;
     }
 
     // 4. Ping em tempo real da thread de background
