@@ -1,0 +1,7 @@
+# .gitignore
+*.o
+*.obj
+*.pdb
+*.ilk
+.vscode/
+.idea/

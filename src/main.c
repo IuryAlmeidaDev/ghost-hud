@@ -1,7 +1,6 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
-#include <shellapi.h>
 #include <stdio.h>
 
 #include "hardware.h"
@@ -14,6 +13,36 @@
 #define IDM_TOGGLE_LOCK  101
 #define IDM_RESET_POS    102
 #define IDM_QUIT         103
+
+// Definições nativas do Shell NotifyIcon (dispensa shellapi.h)
+#define NIM_ADD         0x00000000
+#define NIM_MODIFY      0x00000001
+#define NIM_DELETE      0x00000002
+
+#define NIF_MESSAGE     0x00000001
+#define NIF_ICON        0x00000002
+#define NIF_TIP         0x00000004
+
+#ifndef LWA_ALPHA
+#define LWA_ALPHA 0x00000002
+#endif
+
+typedef struct _NOTIFYICONDATAW {
+    DWORD cbSize;
+    HWND hWnd;
+    UINT uID;
+    UINT uFlags;
+    UINT uCallbackMessage;
+    HICON hIcon;
+    WCHAR szTip[128];
+} NOTIFYICONDATAW, *PNOTIFYICONDATAW;
+
+typedef BOOL (WINAPI *pfn_Shell_NotifyIconW)(DWORD dwMessage, PNOTIFYICONDATAW lpData);
+typedef BOOL (WINAPI *pfn_SetLayeredWindowAttributes)(HWND hwnd, COLORREF crKey, BYTE bAlpha, DWORD dwFlags);
+
+static pfn_Shell_NotifyIconW fn_Shell_NotifyIconW = NULL;
+static pfn_SetLayeredWindowAttributes fn_SetLayeredWindowAttributes = NULL;
+static HMODULE hShell32 = NULL;
 
 static HWND g_hWnd = NULL;
 static BOOL g_locked = TRUE;
@@ -153,7 +182,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_DESTROY: {
             KillTimer(hWnd, ID_TIMER_TICK);
             UnregisterHotKey(hWnd, ID_HOTKEY_F9);
-            Shell_NotifyIconW(NIM_DELETE, &g_nid);
+            if (fn_Shell_NotifyIconW) {
+                fn_Shell_NotifyIconW(NIM_DELETE, &g_nid);
+            }
+            if (hShell32) {
+                FreeLibrary(hShell32);
+                hShell32 = NULL;
+            }
             hardware_cleanup();
             ui_cleanup();
             PostQuitMessage(0);
@@ -167,6 +202,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     get_ini_path();
+
+    // Carrega User32 e Shell32 dinamicamente para compatibilidade universal
+    HMODULE hUser32 = GetModuleHandleA("user32.dll");
+    if (hUser32) {
+        fn_SetLayeredWindowAttributes = (pfn_SetLayeredWindowAttributes)GetProcAddress(hUser32, "SetLayeredWindowAttributes");
+    }
+
+    hShell32 = LoadLibraryA("shell32.dll");
+    if (hShell32) {
+        fn_Shell_NotifyIconW = (pfn_Shell_NotifyIconW)GetProcAddress(hShell32, "Shell_NotifyIconW");
+    }
 
     // Configurações salvas
     int start_x = GetPrivateProfileIntA("HUD", "x", 120, g_iniPath);
@@ -202,21 +248,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     // Aplica opacidade translúcida de 88% (225 / 255)
-    SetLayeredWindowAttributes(g_hWnd, 0, 225, LWA_ALPHA);
+    if (fn_SetLayeredWindowAttributes) {
+        fn_SetLayeredWindowAttributes(g_hWnd, 0, 225, LWA_ALPHA);
+    }
 
     // Registra HotKey global F9
     RegisterHotKey(g_hWnd, ID_HOTKEY_F9, 0, VK_F9);
 
     // Registra ícone na bandeja do sistema
-    ZeroMemory(&g_nid, sizeof(g_nid));
-    g_nid.cbSize = sizeof(NOTIFYICONDATAW);
-    g_nid.hWnd = g_hWnd;
-    g_nid.uID = 1;
-    g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-    g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    wcscpy(g_nid.szTip, L"GhostHUD - Monitor Gamer (F9 para alternar)");
-    Shell_NotifyIconW(NIM_ADD, &g_nid);
+    if (fn_Shell_NotifyIconW) {
+        ZeroMemory(&g_nid, sizeof(g_nid));
+        g_nid.cbSize = sizeof(NOTIFYICONDATAW);
+        g_nid.hWnd = g_hWnd;
+        g_nid.uID = 1;
+        g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+        g_nid.uCallbackMessage = WM_TRAYICON;
+        g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+        wcscpy(g_nid.szTip, L"GhostHUD - Monitor Gamer (F9 para alternar)");
+        fn_Shell_NotifyIconW(NIM_ADD, &g_nid);
+    }
 
     ShowWindow(g_hWnd, SW_SHOW);
     UpdateWindow(g_hWnd);
