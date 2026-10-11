@@ -4,20 +4,30 @@
 #include <windows.h>
 #include "hardware.h"
 
-// Dimensões compactas contendo CPU, GPU, VRAM, RAM, PING e Relógio
-#define HUD_WIDTH        240
-#define HUD_HEIGHT       44
+typedef enum {
+    HUD_SIZE_SMALL = 0,
+    HUD_SIZE_MEDIUM = 1,
+    HUD_SIZE_LARGE = 2
+} HudSize;
 
-#define HUD_MINI_WIDTH   64
-#define HUD_MINI_HEIGHT  64
+typedef struct {
+    BOOL show_cpu;
+    BOOL show_gpu;
+    BOOL show_vram;
+    BOOL show_ram;
+    BOOL show_ping;
+    BOOL show_clock;
+    HudSize size;
+    int alpha;
+} HudConfig;
 
-#define UI_IS_TOGGLE_BTN(x, y, min) ( \
-    (min) ? ((x) >= (HUD_MINI_WIDTH - 18) && (x) <= (HUD_MINI_WIDTH - 2) && (y) >= 1 && (y) <= 15) : \
-            ((x) >= (HUD_WIDTH - 20) && (x) <= (HUD_WIDTH - 2) && (y) >= 1 && (y) <= 15) \
+#define UI_IS_GEAR_BTN(x, y, width, header_h) ( \
+    ((x) >= ((width) - 22)) && ((x) <= ((width) - 2)) && ((y) >= 0) && ((y) <= (header_h)) \
 )
 
 void ui_init(void);
-void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, BOOL minimized, int timer_seconds_left);
+void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, int *out_header_h);
+void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, const HudConfig *config);
 void ui_cleanup(void);
 
 #endif // UI_H

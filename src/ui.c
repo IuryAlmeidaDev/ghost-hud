@@ -1,10 +1,9 @@
 #include "ui.h"
 #include <stdio.h>
 
-static HFONT hFontTitle = NULL;
-static HFONT hFontLabel = NULL;
-static HFONT hFontValue = NULL;
-static HFONT hFontMini = NULL;
+static HFONT hFontTitle[3] = {NULL, NULL, NULL};
+static HFONT hFontLabel[3] = {NULL, NULL, NULL};
+static HFONT hFontValue[3] = {NULL, NULL, NULL};
 
 // Paleta de Cores Obsidian Slate do Jogo
 #define COLOR_BG          RGB(15, 17, 21)      // Fundo obsidian slate escuro (#0F1115)
@@ -51,29 +50,99 @@ static COLORREF get_ping_color(int ms) {
 }
 
 void ui_init(void) {
-    hFontTitle = CreateFontA(
-        -8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    // 0: Pequeno (Compacto)
+    hFontTitle[0] = CreateFontA(-8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
-    );
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    hFontLabel[0] = CreateFontA(-8, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    hFontValue[0] = CreateFontA(-11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
 
-    hFontLabel = CreateFontA(
-        -8, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    // 1: Médio
+    hFontTitle[1] = CreateFontA(-10, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
-    );
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    hFontLabel[1] = CreateFontA(-9, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    hFontValue[1] = CreateFontA(-13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
 
-    hFontValue = CreateFontA(
-        -11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    // 2: Grande
+    hFontTitle[2] = CreateFontA(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
-    );
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    hFontLabel[2] = CreateFontA(-11, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    hFontValue[2] = CreateFontA(-16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+}
 
-    hFontMini = CreateFontA(
-        -8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI"
-    );
+void ui_cleanup(void) {
+    for (int i = 0; i < 3; i++) {
+        if (hFontTitle[i]) { DeleteObject(hFontTitle[i]); hFontTitle[i] = NULL; }
+        if (hFontLabel[i]) { DeleteObject(hFontLabel[i]); hFontLabel[i] = NULL; }
+        if (hFontValue[i]) { DeleteObject(hFontValue[i]); hFontValue[i] = NULL; }
+    }
+}
+
+void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, int *out_header_h) {
+    if (!cfg) return;
+
+    int active_slots = 0;
+    if (cfg->show_cpu) active_slots++;
+    if (cfg->show_gpu) active_slots++;
+    if (cfg->show_vram) active_slots++;
+    if (cfg->show_ram) active_slots++;
+    if (cfg->show_ping) active_slots++;
+
+    int slot_w, slot_h, slot_gap, header_h, pad_x, pad_y;
+    int min_hdr_w;
+
+    switch (cfg->size) {
+        case HUD_SIZE_MEDIUM:
+            slot_w = 56;
+            slot_h = 33;
+            slot_gap = 4;
+            header_h = 16;
+            pad_x = 4;
+            pad_y = 4;
+            min_hdr_w = cfg->show_clock ? 160 : 95;
+            break;
+        case HUD_SIZE_LARGE:
+            slot_w = 68;
+            slot_h = 40;
+            slot_gap = 5;
+            header_h = 19;
+            pad_x = 5;
+            pad_y = 5;
+            min_hdr_w = cfg->show_clock ? 190 : 115;
+            break;
+        case HUD_SIZE_SMALL:
+        default:
+            slot_w = 44;
+            slot_h = 26;
+            slot_gap = 3;
+            header_h = 13;
+            pad_x = 3;
+            pad_y = 3;
+            min_hdr_w = cfg->show_clock ? 130 : 80;
+            break;
+    }
+
+    int total_slots_w = (pad_x * 2) + (active_slots * slot_w) + ((active_slots > 1 ? active_slots - 1 : 0) * slot_gap);
+    int final_w = (total_slots_w > min_hdr_w) ? total_slots_w : min_hdr_w;
+    int final_h = (active_slots > 0) ? (header_h + slot_h + pad_y + 2) : (header_h + 3);
+
+    if (out_width) *out_width = final_w;
+    if (out_height) *out_height = final_h;
+    if (out_header_h) *out_header_h = header_h;
 }
 
 static void draw_gauge_bar(HDC hdc, int x, int y, int width, int height, int pct, COLORREF color) {
@@ -94,8 +163,33 @@ static void draw_gauge_bar(HDC hdc, int x, int y, int width, int height, int pct
     }
 }
 
+static void draw_gear_icon(HDC hdc, int cx, int cy, int r, COLORREF color) {
+    HPEN hPen = CreatePen(PS_SOLID, 1, color);
+    HPEN oldPen = (HPEN)SelectObject(hdc, hPen);
+
+    // 8 dentes radiantes
+    MoveToEx(hdc, cx - r, cy, NULL); LineTo(hdc, cx + r + 1, cy);
+    MoveToEx(hdc, cx, cy - r, NULL); LineTo(hdc, cx, cy + r + 1);
+    int d = (r * 7) / 10;
+    MoveToEx(hdc, cx - d, cy - d, NULL); LineTo(hdc, cx + d + 1, cy + d + 1);
+    MoveToEx(hdc, cx - d, cy + d, NULL); LineTo(hdc, cx + d + 1, cy - d - 1);
+
+    // Anel / furo central da engrenagem
+    HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
+    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, hBrushHdr);
+    int inner_r = (r > 4) ? 3 : 2;
+    Ellipse(hdc, cx - inner_r, cy - inner_r, cx + inner_r + 1, cy + inner_r + 1);
+
+    SelectObject(hdc, oldBrush);
+    DeleteObject(hBrushHdr);
+    SelectObject(hdc, oldPen);
+    DeleteObject(hPen);
+}
+
 static void draw_metric_slot(HDC memDC, int x, int y, int w, int h, 
-                             const char *label, const char *value, int pct, COLORREF val_color) {
+                             const char *label, const char *value, int pct, COLORREF val_color, HudSize size) {
+    int s_idx = (size >= 0 && size <= 2) ? size : 0;
+
     // 1. Fundo e contorno do slot
     HBRUSH hBrushSlot = CreateSolidBrush(COLOR_SLOT_BG);
     HPEN hPenSlot = CreatePen(PS_SOLID, 1, COLOR_SLOT_BORDER);
@@ -110,293 +204,188 @@ static void draw_metric_slot(HDC memDC, int x, int y, int w, int h,
     DeleteObject(hPenSlot);
 
     // 2. Rótulo superior
-    RECT rLbl = { x, y + 1, x + w, y + 10 };
-    SelectObject(memDC, hFontLabel);
+    int lbl_h = (s_idx == 0) ? 9 : ((s_idx == 1) ? 11 : 13);
+    RECT rLbl = { x, y + 1, x + w, y + 1 + lbl_h };
+    SelectObject(memDC, hFontLabel[s_idx]);
     SetTextColor(memDC, COLOR_LABEL);
     DrawTextA(memDC, label, -1, &rLbl, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
     // 3. Valor principal
-    RECT rVal = { x, y + 10, x + w, y + 21 };
-    SelectObject(memDC, hFontValue);
+    int val_y = y + lbl_h + 1;
+    int bar_h = (s_idx == 0) ? 2 : ((s_idx == 1) ? 3 : 4);
+    int val_bottom = y + h - bar_h - 2;
+    RECT rVal = { x, val_y, x + w, val_bottom };
+    SelectObject(memDC, hFontValue[s_idx]);
     SetTextColor(memDC, val_color);
     DrawTextA(memDC, value, -1, &rVal, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 
-    // 4. Mini barra de progresso no rodapé do slot
+    // 4. Barra de progresso no rodapé do slot
     int g_w = w - 6;
     int g_x = x + 3;
-    int g_y = y + h - 3;
-    draw_gauge_bar(memDC, g_x, g_y, g_w, 2, pct, val_color);
+    int g_y = y + h - bar_h - 1;
+    draw_gauge_bar(memDC, g_x, g_y, g_w, bar_h, pct, val_color);
 }
 
-static void render_mini_mode(HDC memDC, int width, int height, const HardwareMetrics *m, int timer_left) {
-    RECT rHdr = { 2, 2, width - 2, 12 };
-    HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
-    FillRect(memDC, &rHdr, hBrushHdr);
-    DeleteObject(hBrushHdr);
+void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, const HudConfig *config) {
+    if (!config) return;
 
-    SetBkMode(memDC, TRANSPARENT);
-    SelectObject(memDC, hFontTitle);
-    SetTextColor(memDC, COLOR_TITLE);
+    HudSize size = (config->size >= 0 && config->size <= 2) ? config->size : HUD_SIZE_SMALL;
+    int s_idx = size;
 
-    RECT rTitle = { 4, 1, width - 16, 12 };
-    if (timer_left > 0) {
-        char tbuf[16];
-        snprintf(tbuf, sizeof(tbuf), "%02d:%02d", timer_left / 60, timer_left % 60);
-        SetTextColor(memDC, COLOR_YELLOW);
-        DrawTextA(memDC, tbuf, -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    } else {
-        DrawTextA(memDC, "HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    HDC memDC = CreateCompatibleDC(hdc);
+    HBITMAP memBitmap = CreateCompatibleBitmap(hdc, width, height);
+    HBITMAP oldBitmap = (HBITMAP)SelectObject(memDC, memBitmap);
+
+    // 1. Fundo geral Obsidian Slate (#0F1115)
+    HBRUSH hBrushBg = CreateSolidBrush(COLOR_BG);
+    RECT rClient = { 0, 0, width, height };
+    FillRect(memDC, &rClient, hBrushBg);
+    DeleteObject(hBrushBg);
+
+    int pad_x, pad_y, slot_gap, header_h;
+    switch (size) {
+        case HUD_SIZE_MEDIUM:
+            pad_x = 4; pad_y = 4; slot_gap = 4; header_h = 16;
+            break;
+        case HUD_SIZE_LARGE:
+            pad_x = 5; pad_y = 5; slot_gap = 5; header_h = 19;
+            break;
+        case HUD_SIZE_SMALL:
+        default:
+            pad_x = 3; pad_y = 3; slot_gap = 3; header_h = 13;
+            break;
     }
 
-    // Botão [+]
-    int btn_x = width - 14;
-    int btn_y = 2;
-    HPEN hPenPlus = CreatePen(PS_SOLID, 1, COLOR_TITLE);
-    HPEN oldPenBtn = (HPEN)SelectObject(memDC, hPenPlus);
-    MoveToEx(memDC, btn_x + 1, btn_y + 4, NULL);
-    LineTo(memDC, btn_x + 8, btn_y + 4);
-    MoveToEx(memDC, btn_x + 4, btn_y + 1, NULL);
-    LineTo(memDC, btn_x + 4, btn_y + 8);
-    SelectObject(memDC, oldPenBtn);
-    DeleteObject(hPenPlus);
-
-    HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
-    HPEN oldPen = (HPEN)SelectObject(memDC, hPenDiv);
-    MoveToEx(memDC, 2, 12, NULL);
-    LineTo(memDC, width - 2, 12);
-    SelectObject(memDC, oldPen);
-    DeleteObject(hPenDiv);
-
-    int cpu = m ? m->cpu_usage : 0;
-    int gpu = m ? m->gpu_usage : 0;
-    int vram = m ? m->vram_usage : 0;
-    int ram = m ? m->ram_usage : 0;
-    int ping = m ? m->ping_ms : 0;
-
-    char buf[16];
-
-    // 5 linhas compactas no mini mode
-    int y_start = 13;
-    int row_h = 10;
-
-    // CPU
-    RECT rL1 = { 4, y_start, 24, y_start + row_h };
-    RECT rV1 = { 24, y_start, width - 4, y_start + row_h };
-    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
-    DrawTextA(memDC, "CPU", -1, &rL1, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    snprintf(buf, sizeof(buf), "%d%%", cpu);
-    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(cpu, 0));
-    DrawTextA(memDC, buf, -1, &rV1, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-
-    // GPU
-    y_start += row_h;
-    RECT rL2 = { 4, y_start, 24, y_start + row_h };
-    RECT rV2 = { 24, y_start, width - 4, y_start + row_h };
-    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
-    DrawTextA(memDC, "GPU", -1, &rL2, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    snprintf(buf, sizeof(buf), "%d%%", gpu);
-    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(gpu, m ? m->gpu_temp : 0));
-    DrawTextA(memDC, buf, -1, &rV2, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-
-    // VRAM
-    y_start += row_h;
-    RECT rL3 = { 4, y_start, 24, y_start + row_h };
-    RECT rV3 = { 24, y_start, width - 4, y_start + row_h };
-    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
-    DrawTextA(memDC, "VRAM", -1, &rL3, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    snprintf(buf, sizeof(buf), "%d%%", vram);
-    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(vram, 0));
-    DrawTextA(memDC, buf, -1, &rV3, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-
-    // RAM
-    y_start += row_h;
-    RECT rL4 = { 4, y_start, 24, y_start + row_h };
-    RECT rV4 = { 24, y_start, width - 4, y_start + row_h };
-    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
-    DrawTextA(memDC, "RAM", -1, &rL4, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    snprintf(buf, sizeof(buf), "%d%%", ram);
-    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_status_color(ram, 0));
-    DrawTextA(memDC, buf, -1, &rV4, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-
-    // PING
-    y_start += row_h;
-    RECT rL5 = { 4, y_start, 24, y_start + row_h };
-    RECT rV5 = { 24, y_start, width - 4, y_start + row_h };
-    SelectObject(memDC, hFontLabel); SetTextColor(memDC, COLOR_LABEL);
-    DrawTextA(memDC, "PING", -1, &rL5, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    snprintf(buf, sizeof(buf), "%dms", ping);
-    SelectObject(memDC, hFontMini); SetTextColor(memDC, get_ping_color(ping));
-    DrawTextA(memDC, buf, -1, &rV5, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-}
-
-static void render_normal_mode(HDC memDC, int width, int height, const HardwareMetrics *m, int timer_left) {
-    // 1. Cabeçalho Integrado com Relógio / Timer de Buff
-    RECT rHdr = { 2, 2, width - 2, 13 };
+    // 2. Cabeçalho Integrado (#13171E)
+    RECT rHdr = { 2, 2, width - 2, header_h };
     HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
     FillRect(memDC, &rHdr, hBrushHdr);
     DeleteObject(hBrushHdr);
 
     SetBkMode(memDC, TRANSPARENT);
-    SelectObject(memDC, hFontTitle);
+    SelectObject(memDC, hFontTitle[s_idx]);
 
     // Título à esquerda
     SetTextColor(memDC, COLOR_TITLE);
-    RECT rTitle = { 6, 1, 62, 13 };
+    int title_w = (s_idx == 0) ? 58 : ((s_idx == 1) ? 72 : 88);
+    RECT rTitle = { pad_x + 2, 1, pad_x + 2 + title_w, header_h };
     DrawTextA(memDC, "GHOST HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    // Relógio Digital / Timer de Buffs
-    char timeBuf[32];
-    RECT rClock = { 65, 1, width - 20, 13 };
-    if (timer_left > 0) {
-        snprintf(timeBuf, sizeof(timeBuf), "\x95  BUFF: %02d:%02d", timer_left / 60, timer_left % 60);
-        SetTextColor(memDC, COLOR_YELLOW);
-    } else {
+    // Relógio Digital (se ativado)
+    if (config->show_clock) {
         SYSTEMTIME st;
         GetLocalTime(&st);
+        char timeBuf[32];
         snprintf(timeBuf, sizeof(timeBuf), "\x95  %02d:%02d", st.wHour, st.wMinute);
         SetTextColor(memDC, COLOR_TIME);
+        RECT rClock = { pad_x + 2 + title_w + 4, 1, width - 22, header_h };
+        DrawTextA(memDC, timeBuf, -1, &rClock, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     }
-    DrawTextA(memDC, timeBuf, -1, &rClock, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    // Botão discreto [-] de minimizar no canto superior direito
-    int btn_x = width - 16;
-    int btn_y = 2;
-    HPEN hPenMinus = CreatePen(PS_SOLID, 1, COLOR_TITLE);
-    HPEN oldPenBtn = (HPEN)SelectObject(memDC, hPenMinus);
-    MoveToEx(memDC, btn_x + 2, btn_y + 4, NULL);
-    LineTo(memDC, btn_x + 9, btn_y + 4);
-    SelectObject(memDC, oldPenBtn);
-    DeleteObject(hPenMinus);
+    // Ícone da Engrenagem [⚙] no canto superior direito
+    int gear_r = (s_idx == 0) ? 4 : ((s_idx == 1) ? 5 : 6);
+    int gear_cx = width - 11;
+    int gear_cy = header_h / 2 + 1;
+    draw_gear_icon(memDC, gear_cx, gear_cy, gear_r, COLOR_TITLE);
 
-    // Linha divisória horizontal separando cabeçalho
+    // Linha divisória horizontal sutil (#1C222C)
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenDiv);
-    MoveToEx(memDC, 2, 13, NULL);
-    LineTo(memDC, width - 2, 13);
+    MoveToEx(memDC, 2, header_h, NULL);
+    LineTo(memDC, width - 2, header_h);
     SelectObject(memDC, oldPen);
     DeleteObject(hPenDiv);
 
-    // 2. Cinco Slots Modulares de Status: CPU, GPU, VRAM, RAM, PING
-    // Largura total: width = 240. Margens: 4px cada lado. Espaço útil = 232px.
-    // 5 slots de 44px com 3px de espaçamento entre eles:
-    // Slot 1: x = 4
-    // Slot 2: x = 51
-    // Slot 3: x = 98
-    // Slot 4: x = 145
-    // Slot 5: x = 192
-    int slot_w = 44;
-    int slot_h = 26;
-    int slot_y = 15;
+    // 3. Renderização Dinâmica dos Módulos/Slots
+    int active_slots = 0;
+    if (config->show_cpu) active_slots++;
+    if (config->show_gpu) active_slots++;
+    if (config->show_vram) active_slots++;
+    if (config->show_ram) active_slots++;
+    if (config->show_ping) active_slots++;
 
-    char buf[32];
+    if (active_slots > 0) {
+        int slot_y = header_h + 2;
+        int slot_h = height - slot_y - pad_y;
+        int total_gaps = (active_slots - 1) * slot_gap;
+        int available_w = width - (pad_x * 2) - total_gaps;
+        int slot_w = available_w / active_slots;
+        int extra_pixels = available_w % active_slots;
 
-    // --- SLOT 1: CPU ---
-    int cpu = m ? m->cpu_usage : 0;
-    COLORREF color_cpu = get_status_color(cpu, 0);
-    snprintf(buf, sizeof(buf), "%d%%", cpu);
-    draw_metric_slot(memDC, 4, slot_y, slot_w, slot_h, "CPU", buf, cpu, color_cpu);
+        int cur_x = pad_x;
+        char buf[32];
 
-    // --- SLOT 2: GPU ---
-    int gpu = m ? m->gpu_usage : 0;
-    int gpu_temp = m ? m->gpu_temp : 0;
-    COLORREF color_gpu = get_status_color(gpu, gpu_temp);
-    if (gpu_temp > 0) {
-        snprintf(buf, sizeof(buf), "%d\xB0" "C", gpu_temp); // Foco na temperatura e carga
-    } else {
-        snprintf(buf, sizeof(buf), "%d%%", gpu);
-    }
-    draw_metric_slot(memDC, 51, slot_y, slot_w, slot_h, "GPU", buf, gpu, color_gpu);
+        // CPU
+        if (config->show_cpu) {
+            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
+            int cpu = metrics ? metrics->cpu_usage : 0;
+            snprintf(buf, sizeof(buf), "%d%%", cpu);
+            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
+                             "CPU", buf, cpu, get_status_color(cpu, 0), size);
+            cur_x += w_this + slot_gap;
+        }
 
-    // --- SLOT 3: VRAM ---
-    int vram_pct = m ? m->vram_usage : 0;
-    COLORREF color_vram = get_status_color(vram_pct, 0);
-    if (m && m->vram_used_mb > 0) {
-        float vram_gb = (float)m->vram_used_mb / 1024.0f;
-        snprintf(buf, sizeof(buf), "%.1fG", vram_gb);
-    } else {
-        snprintf(buf, sizeof(buf), "%d%%", vram_pct);
-    }
-    draw_metric_slot(memDC, 98, slot_y, slot_w, slot_h, "VRAM", buf, vram_pct, color_vram);
+        // GPU
+        if (config->show_gpu) {
+            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
+            int gpu = metrics ? metrics->gpu_usage : 0;
+            int temp = metrics ? metrics->gpu_temp : 0;
+            snprintf(buf, sizeof(buf), "%d\xB0" "C", temp);
+            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
+                             "GPU", buf, gpu, get_status_color(gpu, temp), size);
+            cur_x += w_this + slot_gap;
+        }
 
-    // --- SLOT 4: RAM ---
-    int ram = m ? m->ram_usage : 0;
-    COLORREF color_ram = get_status_color(ram, 0);
-    snprintf(buf, sizeof(buf), "%d%%", ram);
-    draw_metric_slot(memDC, 145, slot_y, slot_w, slot_h, "RAM", buf, ram, color_ram);
+        // VRAM
+        if (config->show_vram) {
+            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
+            int vram = metrics ? metrics->vram_usage : 0;
+            snprintf(buf, sizeof(buf), "%d%%", vram);
+            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
+                             "VRAM", buf, vram, get_status_color(vram, 0), size);
+            cur_x += w_this + slot_gap;
+        }
 
-    // --- SLOT 5: PING ---
-    int ping = m ? m->ping_ms : 0;
-    COLORREF color_ping = get_ping_color(ping);
-    if (ping > 0) {
-        snprintf(buf, sizeof(buf), "%dms", ping);
-    } else {
-        snprintf(buf, sizeof(buf), "--ms");
-    }
-    int ping_gauge = (ping > 0) ? ((ping * 100) / 120) : 0;
-    draw_metric_slot(memDC, 192, slot_y, slot_w, slot_h, "PING", buf, ping_gauge, color_ping);
-}
+        // RAM
+        if (config->show_ram) {
+            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
+            int ram = metrics ? metrics->ram_usage : 0;
+            snprintf(buf, sizeof(buf), "%d%%", ram);
+            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
+                             "RAM", buf, ram, get_status_color(ram, 0), size);
+            cur_x += w_this + slot_gap;
+        }
 
-void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL minimized, int timer_left) {
-    HDC memDC = CreateCompatibleDC(hdc);
-    HBITMAP memBmp = CreateCompatibleBitmap(hdc, width, height);
-    HBITMAP oldBmp = (HBITMAP)SelectObject(memDC, memBmp);
-
-    // 1. Clipping com cantos sutis de 3px
-    HRGN hClip = CreateRoundRectRgn(0, 0, width + 1, height + 1, 3, 3);
-    SelectClipRgn(memDC, hClip);
-
-    // 2. Fundo principal
-    HBRUSH hBrushBg = CreateSolidBrush(COLOR_BG);
-    RECT rcAll = { 0, 0, width, height };
-    FillRect(memDC, &rcAll, hBrushBg);
-    DeleteObject(hBrushBg);
-
-    // 3. Renderiza conteúdo
-    if (minimized) {
-        render_mini_mode(memDC, width, height, m, timer_left);
-    } else {
-        render_normal_mode(memDC, width, height, m, timer_left);
+        // PING
+        if (config->show_ping) {
+            int w_this = slot_w + (extra_pixels-- > 0 ? 1 : 0);
+            int ping = metrics ? metrics->ping_ms : 0;
+            if (ping > 0) snprintf(buf, sizeof(buf), "%dms", ping);
+            else snprintf(buf, sizeof(buf), "--");
+            draw_metric_slot(memDC, cur_x, slot_y, w_this, slot_h, 
+                             "PING", buf, ping > 150 ? 100 : (ping * 100) / 150, get_ping_color(ping), size);
+            cur_x += w_this + slot_gap;
+        }
     }
 
-    // 4. Remove clipping para desenhar a borda
-    SelectClipRgn(memDC, NULL);
-    DeleteObject(hClip);
+    // 4. Borda Externa (com Alerta Térmico se GPU >= 82°C)
+    COLORREF borderColor = COLOR_BORDER;
+    if (metrics && metrics->gpu_temp >= 82) {
+        borderColor = COLOR_BORDER_HOT;
+    }
+    HPEN hPenBorder = CreatePen(PS_SOLID, 1, borderColor);
+    HPEN oldPenOuter = (HPEN)SelectObject(memDC, hPenBorder);
+    HBRUSH oldBrushOuter = (HBRUSH)SelectObject(memDC, GetStockObject(NULL_BRUSH));
 
-    // 5. Alerta Térmico: se GPU >= 82°C, borda pisca em vermelho suave de proteção
-    BOOL is_hot = (m && m->gpu_temp >= 82);
-    HPEN hPenBorder = CreatePen(PS_SOLID, 1, is_hot ? COLOR_BORDER_HOT : COLOR_BORDER);
-    HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, GetStockObject(NULL_BRUSH));
-    HPEN oldPen = (HPEN)SelectObject(memDC, hPenBorder);
+    RoundRect(memDC, 0, 0, width, height, 4, 4);
 
-    RoundRect(memDC, 0, 0, width, height, 3, 3);
-
-    SelectObject(memDC, oldBrush);
-    SelectObject(memDC, oldPen);
+    SelectObject(memDC, oldBrushOuter);
+    SelectObject(memDC, oldPenOuter);
     DeleteObject(hPenBorder);
 
-    // Double buffering sem flicker
     BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
 
-    SelectObject(memDC, oldBmp);
-    DeleteObject(memBmp);
+    SelectObject(memDC, oldBitmap);
+    DeleteObject(memBitmap);
     DeleteDC(memDC);
-}
-
-void ui_cleanup(void) {
-    if (hFontTitle) {
-        DeleteObject(hFontTitle);
-        hFontTitle = NULL;
-    }
-    if (hFontLabel) {
-        DeleteObject(hFontLabel);
-        hFontLabel = NULL;
-    }
-    if (hFontValue) {
-        DeleteObject(hFontValue);
-        hFontValue = NULL;
-    }
-    if (hFontMini) {
-        DeleteObject(hFontMini);
-        hFontMini = NULL;
-    }
 }

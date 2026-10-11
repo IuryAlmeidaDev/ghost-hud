@@ -7,16 +7,22 @@
 #include "ui.h"
 
 #define WM_TRAYICON (WM_USER + 1)
-#define ID_HOTKEY_F8            1
-#define ID_HOTKEY_CTRL_F8       2
-#define ID_HOTKEY_F7            3
 #define ID_TIMER_TICK           1
 
-#define IDM_TOGGLE_SIZE  101
-#define IDM_RESET_POS    102
-#define IDM_QUIT         103
-#define IDM_TOGGLE_TIMER 104
-#define IDM_AUTOSTART    105
+#define IDM_TOGGLE_CPU      201
+#define IDM_TOGGLE_GPU      202
+#define IDM_TOGGLE_VRAM     203
+#define IDM_TOGGLE_RAM      204
+#define IDM_TOGGLE_PING     205
+#define IDM_TOGGLE_CLOCK    206
+
+#define IDM_SIZE_SMALL      210
+#define IDM_SIZE_MEDIUM     211
+#define IDM_SIZE_LARGE      212
+
+#define IDM_AUTOSTART       220
+#define IDM_RESET_POS       221
+#define IDM_QUIT            222
 
 // Definições nativas do Shell NotifyIcon (dispensa shellapi.h)
 #define NIM_ADD         0x00000000
@@ -29,10 +35,6 @@
 
 #ifndef LWA_ALPHA
 #define LWA_ALPHA 0x00000002
-#endif
-
-#ifndef MOD_NOREPEAT
-#define MOD_NOREPEAT 0x4000
 #endif
 
 typedef struct _NOTIFYICONDATAW {
@@ -67,21 +69,24 @@ static pfn_RegCloseKey fn_RegCloseKey = NULL;
 static HMODULE hAdvapi32 = NULL;
 
 static HWND g_hWnd = NULL;
-static BOOL g_minimized = FALSE;
-static int g_alpha = 230;                  // Opacidade (100 a 255)
-static int g_timerSecondsLeft = 0;         // Timer de Buffs / Boss (15 min)
+static HudConfig g_config = {
+    .show_cpu = TRUE,
+    .show_gpu = TRUE,
+    .show_vram = TRUE,
+    .show_ram = TRUE,
+    .show_ping = TRUE,
+    .show_clock = TRUE,
+    .size = HUD_SIZE_SMALL,
+    .alpha = 230
+};
+
 static HardwareMetrics g_metrics = {0};
 static NOTIFYICONDATAW g_nid = {0};
 static char g_iniPath[MAX_PATH] = {0};
 
-static DWORD g_lastToggleSizeTime = 0;
-
 static BOOL g_isDragging = FALSE;
 static POINT g_dragStartMouse = {0};
 static POINT g_dragStartWin = {0};
-
-static volatile BOOL g_hotkeyRunning = TRUE;
-static HANDLE g_hHotkeyThread = NULL;
 
 static void init_advapi32(void) {
     if (!hAdvapi32) {
@@ -139,15 +144,41 @@ static void get_ini_path(void) {
     }
 }
 
-static void save_config(int x, int y, BOOL minimized, int alpha) {
+static void load_config(HudConfig *cfg) {
+    cfg->show_cpu = GetPrivateProfileIntA("HUD", "show_cpu", 1, g_iniPath);
+    cfg->show_gpu = GetPrivateProfileIntA("HUD", "show_gpu", 1, g_iniPath);
+    cfg->show_vram = GetPrivateProfileIntA("HUD", "show_vram", 1, g_iniPath);
+    cfg->show_ram = GetPrivateProfileIntA("HUD", "show_ram", 1, g_iniPath);
+    cfg->show_ping = GetPrivateProfileIntA("HUD", "show_ping", 1, g_iniPath);
+    cfg->show_clock = GetPrivateProfileIntA("HUD", "show_clock", 1, g_iniPath);
+    cfg->size = (HudSize)GetPrivateProfileIntA("HUD", "size", HUD_SIZE_SMALL, g_iniPath);
+    if (cfg->size < 0 || cfg->size > 2) cfg->size = HUD_SIZE_SMALL;
+    cfg->alpha = GetPrivateProfileIntA("HUD", "alpha", 230, g_iniPath);
+    if (cfg->alpha < 100) cfg->alpha = 100;
+    if (cfg->alpha > 255) cfg->alpha = 255;
+}
+
+static void save_config(const HudConfig *cfg, int x, int y) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%d", x);
     WritePrivateProfileStringA("HUD", "x", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", y);
     WritePrivateProfileStringA("HUD", "y", buf, g_iniPath);
-    snprintf(buf, sizeof(buf), "%d", minimized ? 1 : 0);
-    WritePrivateProfileStringA("HUD", "minimized", buf, g_iniPath);
-    snprintf(buf, sizeof(buf), "%d", alpha);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_cpu ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_cpu", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_gpu ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_gpu", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_vram ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_vram", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_ram ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_ram", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_ping ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_ping", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->show_clock ? 1 : 0);
+    WritePrivateProfileStringA("HUD", "show_clock", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->size);
+    WritePrivateProfileStringA("HUD", "size", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", cfg->alpha);
     WritePrivateProfileStringA("HUD", "alpha", buf, g_iniPath);
 }
 
@@ -158,92 +189,59 @@ static void update_tray_tip(void) {
     }
 }
 
-static void set_window_minimized(HWND hWnd, BOOL min) {
-    g_minimized = min;
-    int target_w = g_minimized ? HUD_MINI_WIDTH : HUD_WIDTH;
-    int target_h = g_minimized ? HUD_MINI_HEIGHT : HUD_HEIGHT;
+static void apply_layout_and_save(HWND hWnd) {
+    int w, h, hh;
+    ui_get_window_size(&g_config, &w, &h, &hh);
 
     RECT r;
     GetWindowRect(hWnd, &r);
-    SetWindowPos(hWnd, HWND_TOPMOST, r.left, r.top, target_w, target_h, SWP_SHOWWINDOW);
+    SetWindowPos(hWnd, HWND_TOPMOST, r.left, r.top, w, h, SWP_SHOWWINDOW);
 
-    HRGN hRgn = CreateRoundRectRgn(0, 0, target_w + 1, target_h + 1, 3, 3);
+    HRGN hRgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, 3, 3);
     SetWindowRgn(hWnd, hRgn, TRUE);
 
-    save_config(r.left, r.top, g_minimized, g_alpha);
+    save_config(&g_config, r.left, r.top);
     InvalidateRect(hWnd, NULL, TRUE);
 }
 
-static void toggle_window_minimized(HWND hWnd) {
-    DWORD now = GetTickCount();
-    if (now - g_lastToggleSizeTime < 250) return;
-    g_lastToggleSizeTime = now;
-    set_window_minimized(hWnd, !g_minimized);
-}
-
-static void toggle_buff_timer(HWND hWnd) {
-    if (g_timerSecondsLeft > 0) {
-        g_timerSecondsLeft = 0;
-    } else {
-        g_timerSecondsLeft = 15 * 60; // 15 minutos
-    }
-    InvalidateRect(hWnd, NULL, FALSE);
-}
-
-// Thread em segundo plano para monitorar GetAsyncKeyState (F8 e F7 globais para jogos)
-static DWORD WINAPI HotkeyThread(LPVOID lpParam) {
-    BOOL f8_prev = FALSE;
-    BOOL f7_prev = FALSE;
-
-    while (g_hotkeyRunning) {
-        // F8: Alterna Minimizar / Maximizar
-        SHORT f8_state = GetAsyncKeyState(VK_F8);
-        BOOL f8_down = (f8_state & 0x8000) != 0;
-        if (f8_down && !f8_prev) {
-            if (g_hWnd) {
-                PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_SIZE, 0);
-            }
-        }
-        f8_prev = f8_down;
-
-        // F7: Inicia / Reseta Timer de Buffs/Boss (15 min)
-        SHORT f7_state = GetAsyncKeyState(VK_F7);
-        BOOL f7_down = (f7_state & 0x8000) != 0;
-        if (f7_down && !f7_prev) {
-            if (g_hWnd) {
-                PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_TIMER, 0);
-            }
-        }
-        f7_prev = f7_down;
-
-        Sleep(25);
-    }
-    return 0;
-}
-
-static void show_tray_menu(HWND hWnd) {
+static void show_settings_menu(HWND hWnd) {
     POINT pt;
     GetCursorPos(&pt);
 
     HMENU hMenu = CreatePopupMenu();
-    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, IDM_TOGGLE_SIZE, 
-                g_minimized ? L"Maximizar HUD [-]" : L"Minimizar HUD [+]");
-    
-    WCHAR timerStr[64];
-    if (g_timerSecondsLeft > 0) {
-        wsprintfW(timerStr, L"Parar Timer Buff (%02d:%02d) [F7]", g_timerSecondsLeft / 60, g_timerSecondsLeft % 60);
-    } else {
-        lstrcpyW(timerStr, L"Iniciar Timer Buff (15 min) [F7]");
-    }
-    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING, IDM_TOGGLE_TIMER, timerStr);
 
-    UINT autoFlag = MF_BYPOSITION | MF_STRING | (is_autostart_enabled() ? MF_CHECKED : MF_UNCHECKED);
-    InsertMenuW(hMenu, 2, autoFlag, IDM_AUTOSTART, L"Iniciar com o Windows");
+    // 1. Módulos Visíveis (Opções diretas com checkmarks)
+    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING | (g_config.show_cpu ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_TOGGLE_CPU, L"CPU");
+    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING | (g_config.show_gpu ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_TOGGLE_GPU, L"GPU (Temperatura)");
+    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING | (g_config.show_vram ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_TOGGLE_VRAM, L"VRAM (Mem\u00F3ria de V\u00EDdeo)");
+    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING | (g_config.show_ram ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_TOGGLE_RAM, L"RAM");
+    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING | (g_config.show_ping ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_TOGGLE_PING, L"Ping (Lat\u00EAncia)");
+    InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_STRING | (g_config.show_clock ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_TOGGLE_CLOCK, L"Rel\u00F3gio no Cabe\u00E7alho");
 
-    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING, IDM_RESET_POS, L"Resetar Posi\u00E7\u00E3o");
-    InsertMenuW(hMenu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_STRING, IDM_QUIT, L"Sair");
+    InsertMenuW(hMenu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+
+    // 2. Submenu de Seleção de Tamanho
+    HMENU hSizeSub = CreatePopupMenu();
+    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_SMALL ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_SIZE_SMALL, L"Pequeno (Compacto)");
+    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_MEDIUM ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_SIZE_MEDIUM, L"M\u00E9dio");
+    AppendMenuW(hSizeSub, MF_STRING | (g_config.size == HUD_SIZE_LARGE ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_SIZE_LARGE, L"Grande");
+    InsertMenuW(hMenu, 7, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hSizeSub, L"Tamanho do HUD");
+
+    InsertMenuW(hMenu, 8, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenuW(hMenu, 9, MF_BYPOSITION | MF_STRING | (is_autostart_enabled() ? MF_CHECKED : MF_UNCHECKED), 
+                IDM_AUTOSTART, L"Iniciar com o Windows");
+    InsertMenuW(hMenu, 10, MF_BYPOSITION | MF_STRING, IDM_RESET_POS, L"Resetar Posi\u00E7\u00E3o");
+    InsertMenuW(hMenu, 11, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenuW(hMenu, 12, MF_BYPOSITION | MF_STRING, IDM_QUIT, L"Sair");
 
     SetForegroundWindow(hWnd);
     TrackPopupMenuEx(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, hWnd, NULL);
@@ -260,7 +258,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
-        // Recebe cliques normalmente em qualquer momento
         case WM_NCHITTEST: {
             return HTCLIENT;
         }
@@ -269,8 +266,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             POINT pt;
             GetCursorPos(&pt);
             ScreenToClient(hWnd, &pt);
-            if (UI_IS_TOGGLE_BTN(pt.x, pt.y, g_minimized) ||
-                (!g_minimized && pt.x >= 65 && pt.x <= (HUD_WIDTH - 22) && pt.y >= 1 && pt.y <= 14)) {
+
+            RECT r;
+            GetWindowRect(hWnd, &r);
+            int win_w = r.right - r.left;
+            int cur_w, cur_h, cur_header_h;
+            ui_get_window_size(&g_config, &cur_w, &cur_h, &cur_header_h);
+
+            if (UI_IS_GEAR_BTN(pt.x, pt.y, win_w, cur_header_h)) {
                 SetCursor(LoadCursor(NULL, IDC_HAND));
             } else {
                 SetCursor(LoadCursor(NULL, IDC_ARROW));
@@ -278,39 +281,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return TRUE;
         }
 
-        case WM_HOTKEY: {
-            if (wParam == ID_HOTKEY_F8 || wParam == ID_HOTKEY_CTRL_F8) {
-                toggle_window_minimized(hWnd);
-            } else if (wParam == ID_HOTKEY_F7) {
-                toggle_buff_timer(hWnd);
-            }
-            return 0;
-        }
-
         case WM_MOUSEWHEEL: {
             short zDelta = (short)HIWORD(wParam);
             if (zDelta > 0) {
-                g_alpha += 15;
-                if (g_alpha > 255) g_alpha = 255;
+                g_config.alpha += 15;
+                if (g_config.alpha > 255) g_config.alpha = 255;
             } else if (zDelta < 0) {
-                g_alpha -= 15;
-                if (g_alpha < 100) g_alpha = 100; // mínimo 40% opacidade legível
+                g_config.alpha -= 15;
+                if (g_config.alpha < 100) g_config.alpha = 100;
             }
             if (fn_SetLayeredWindowAttributes) {
-                fn_SetLayeredWindowAttributes(hWnd, 0, (BYTE)g_alpha, LWA_ALPHA);
+                fn_SetLayeredWindowAttributes(hWnd, 0, (BYTE)g_config.alpha, LWA_ALPHA);
             }
             RECT r;
             GetWindowRect(hWnd, &r);
-            save_config(r.left, r.top, g_minimized, g_alpha);
+            save_config(&g_config, r.left, r.top);
             return 0;
         }
 
         case WM_TIMER: {
             if (wParam == ID_TIMER_TICK) {
                 hardware_update(&g_metrics);
-                if (g_timerSecondsLeft > 0) {
-                    g_timerSecondsLeft--;
-                }
                 InvalidateRect(hWnd, NULL, FALSE);
             }
             return 0;
@@ -321,30 +312,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             HDC hdc = BeginPaint(hWnd, &ps);
             RECT rc;
             GetClientRect(hWnd, &rc);
-            ui_render(hdc, rc.right - rc.left, rc.bottom - rc.top, &g_metrics, g_minimized, g_timerSecondsLeft);
+            ui_render(hdc, rc.right - rc.left, rc.bottom - rc.top, &g_metrics, &g_config);
             EndPaint(hWnd, &ps);
             return 0;
         }
 
-        case WM_LBUTTONDBLCLK: {
-            toggle_window_minimized(hWnd);
+        case WM_RBUTTONUP: {
+            show_settings_menu(hWnd);
             return 0;
         }
 
-        // Sistema de clique e arraste
         case WM_LBUTTONDOWN: {
             int mouseX = (short)LOWORD(lParam);
             int mouseY = (short)HIWORD(lParam);
 
-            // Clique no botão discreto [-] ou [+]
-            if (UI_IS_TOGGLE_BTN(mouseX, mouseY, g_minimized)) {
-                toggle_window_minimized(hWnd);
-                return 0;
-            }
+            RECT r;
+            GetWindowRect(hWnd, &r);
+            int win_w = r.right - r.left;
+            int cur_w, cur_h, cur_header_h;
+            ui_get_window_size(&g_config, &cur_w, &cur_h, &cur_header_h);
 
-            // Clique na área do relógio/timer no cabeçalho
-            if (!g_minimized && mouseX >= 65 && mouseX <= (HUD_WIDTH - 22) && mouseY >= 1 && mouseY <= 14) {
-                toggle_buff_timer(hWnd);
+            // Clique na Engrenagem [⚙] abre o menu de personalização
+            if (UI_IS_GEAR_BTN(mouseX, mouseY, win_w, cur_header_h)) {
+                show_settings_menu(hWnd);
                 return 0;
             }
 
@@ -352,8 +342,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_isDragging = TRUE;
             SetCapture(hWnd);
             GetCursorPos(&g_dragStartMouse);
-            RECT r;
-            GetWindowRect(hWnd, &r);
             g_dragStartWin.x = r.left;
             g_dragStartWin.y = r.top;
             return 0;
@@ -376,7 +364,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 ReleaseCapture();
                 RECT r;
                 GetWindowRect(hWnd, &r);
-                save_config(r.left, r.top, g_minimized, g_alpha);
+                save_config(&g_config, r.left, r.top);
             }
             return 0;
         }
@@ -384,39 +372,72 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_MOVE: {
             RECT r;
             GetWindowRect(hWnd, &r);
-            save_config(r.left, r.top, g_minimized, g_alpha);
+            save_config(&g_config, r.left, r.top);
             return 0;
         }
 
         case WM_TRAYICON: {
-            if (lParam == WM_RBUTTONUP) {
-                show_tray_menu(hWnd);
-            } else if (lParam == WM_LBUTTONDBLCLK || lParam == WM_LBUTTONUP) {
-                toggle_window_minimized(hWnd);
+            if (lParam == WM_RBUTTONUP || lParam == WM_LBUTTONUP) {
+                show_settings_menu(hWnd);
             }
             return 0;
         }
 
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
-                case IDM_TOGGLE_SIZE:
-                    toggle_window_minimized(hWnd);
+                case IDM_TOGGLE_CPU:
+                    g_config.show_cpu = !g_config.show_cpu;
+                    apply_layout_and_save(hWnd);
                     break;
-                case IDM_TOGGLE_TIMER:
-                    toggle_buff_timer(hWnd);
+                case IDM_TOGGLE_GPU:
+                    g_config.show_gpu = !g_config.show_gpu;
+                    apply_layout_and_save(hWnd);
                     break;
+                case IDM_TOGGLE_VRAM:
+                    g_config.show_vram = !g_config.show_vram;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_TOGGLE_RAM:
+                    g_config.show_ram = !g_config.show_ram;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_TOGGLE_PING:
+                    g_config.show_ping = !g_config.show_ping;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_TOGGLE_CLOCK:
+                    g_config.show_clock = !g_config.show_clock;
+                    apply_layout_and_save(hWnd);
+                    break;
+
+                case IDM_SIZE_SMALL:
+                    g_config.size = HUD_SIZE_SMALL;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_SIZE_MEDIUM:
+                    g_config.size = HUD_SIZE_MEDIUM;
+                    apply_layout_and_save(hWnd);
+                    break;
+                case IDM_SIZE_LARGE:
+                    g_config.size = HUD_SIZE_LARGE;
+                    apply_layout_and_save(hWnd);
+                    break;
+
                 case IDM_AUTOSTART:
                     toggle_autostart();
                     break;
+
                 case IDM_RESET_POS: {
-                    int w = g_minimized ? HUD_MINI_WIDTH : HUD_WIDTH;
-                    int h = g_minimized ? HUD_MINI_HEIGHT : HUD_HEIGHT;
+                    int w, h, hh;
+                    ui_get_window_size(&g_config, &w, &h, &hh);
                     SetWindowPos(hWnd, HWND_TOPMOST, 120, 80, w, h, SWP_SHOWWINDOW);
                     HRGN hRgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, 3, 3);
                     SetWindowRgn(hWnd, hRgn, TRUE);
-                    save_config(120, 80, g_minimized, g_alpha);
+                    save_config(&g_config, 120, 80);
+                    InvalidateRect(hWnd, NULL, TRUE);
                     break;
                 }
+
                 case IDM_QUIT:
                     DestroyWindow(hWnd);
                     break;
@@ -426,15 +447,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_DESTROY: {
             KillTimer(hWnd, ID_TIMER_TICK);
-            g_hotkeyRunning = FALSE;
-            if (g_hHotkeyThread) {
-                WaitForSingleObject(g_hHotkeyThread, 150);
-                CloseHandle(g_hHotkeyThread);
-                g_hHotkeyThread = NULL;
-            }
-            UnregisterHotKey(hWnd, ID_HOTKEY_F8);
-            UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_F8);
-            UnregisterHotKey(hWnd, ID_HOTKEY_F7);
             if (fn_Shell_NotifyIconW) {
                 fn_Shell_NotifyIconW(NIM_DELETE, &g_nid);
             }
@@ -463,6 +475,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     get_ini_path();
+    load_config(&g_config);
 
     // Carrega User32 e Shell32 dinamicamente
     HMODULE hUser32 = GetModuleHandleA("user32.dll");
@@ -475,18 +488,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         fn_Shell_NotifyIconW = (pfn_Shell_NotifyIconW)GetProcAddress(hShell32, "Shell_NotifyIconW");
     }
 
-    // Configurações salvas
+    // Configurações salvas de coordenadas
     int start_x = GetPrivateProfileIntA("HUD", "x", 120, g_iniPath);
     int start_y = GetPrivateProfileIntA("HUD", "y", 80, g_iniPath);
-    g_minimized = GetPrivateProfileIntA("HUD", "minimized", 0, g_iniPath);
-    g_alpha = GetPrivateProfileIntA("HUD", "alpha", 230, g_iniPath);
-    if (g_alpha < 100) g_alpha = 100;
-    if (g_alpha > 255) g_alpha = 255;
 
-    // Registro da classe da janela (com CS_DBLCLKS para detectar clique duplo)
+    // Registro da classe da janela
     WNDCLASSEXW wc = {0};
     wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.style = CS_DBLCLKS;
+    wc.style = 0;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
@@ -496,8 +505,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Estilos de janela: Sem bordas (WS_POPUP), Topmost, Layered, Fora do Alt+Tab
     DWORD exStyle = WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
 
-    int init_w = g_minimized ? HUD_MINI_WIDTH : HUD_WIDTH;
-    int init_h = g_minimized ? HUD_MINI_HEIGHT : HUD_HEIGHT;
+    int init_w, init_h, init_header_h;
+    ui_get_window_size(&g_config, &init_w, &init_h, &init_header_h);
 
     g_hWnd = CreateWindowExW(
         exStyle,
@@ -521,17 +530,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Aplica opacidade translúcida carregada do INI
     if (fn_SetLayeredWindowAttributes) {
-        fn_SetLayeredWindowAttributes(g_hWnd, 0, (BYTE)g_alpha, LWA_ALPHA);
+        fn_SetLayeredWindowAttributes(g_hWnd, 0, (BYTE)g_config.alpha, LWA_ALPHA);
     }
-
-    // Registra atalhos do Windows
-    RegisterHotKey(g_hWnd, ID_HOTKEY_F8, 0, VK_F8);
-    RegisterHotKey(g_hWnd, ID_HOTKEY_CTRL_F8, MOD_CONTROL, VK_F8);
-    RegisterHotKey(g_hWnd, ID_HOTKEY_F7, 0, VK_F7);
-
-    // Thread em segundo plano para monitorar GetAsyncKeyState (F8 e F7 mesmo em segundo plano/jogos)
-    g_hotkeyRunning = TRUE;
-    g_hHotkeyThread = CreateThread(NULL, 0, HotkeyThread, NULL, 0, NULL);
 
     // Registra ícone na bandeja do sistema
     if (fn_Shell_NotifyIconW) {
