@@ -7,17 +7,13 @@
 #include "ui.h"
 
 #define WM_TRAYICON (WM_USER + 1)
-#define ID_HOTKEY_F9            1
-#define ID_HOTKEY_CTRL_F9       2
-#define ID_HOTKEY_CTRL_SHIFT_F9 3
-#define ID_HOTKEY_F8            4
-#define ID_HOTKEY_CTRL_F8       5
+#define ID_HOTKEY_F8            1
+#define ID_HOTKEY_CTRL_F8       2
 #define ID_TIMER_TICK           1
 
-#define IDM_TOGGLE_LOCK  101
-#define IDM_TOGGLE_SIZE  102
-#define IDM_RESET_POS    103
-#define IDM_QUIT         104
+#define IDM_TOGGLE_SIZE  101
+#define IDM_RESET_POS    102
+#define IDM_QUIT         103
 
 // Definições nativas do Shell NotifyIcon (dispensa shellapi.h)
 #define NIM_ADD         0x00000000
@@ -54,18 +50,19 @@ static pfn_SetLayeredWindowAttributes fn_SetLayeredWindowAttributes = NULL;
 static HMODULE hShell32 = NULL;
 
 static HWND g_hWnd = NULL;
-static BOOL g_locked = FALSE;
 static BOOL g_minimized = FALSE;
 static HardwareMetrics g_metrics = {0};
 static NOTIFYICONDATAW g_nid = {0};
 static char g_iniPath[MAX_PATH] = {0};
 
-static DWORD g_lastToggleLockTime = 0;
 static DWORD g_lastToggleSizeTime = 0;
 
 static BOOL g_isDragging = FALSE;
 static POINT g_dragStartMouse = {0};
 static POINT g_dragStartWin = {0};
+
+static volatile BOOL g_hotkeyRunning = TRUE;
+static HANDLE g_hHotkeyThread = NULL;
 
 static void get_ini_path(void) {
     GetModuleFileNameA(NULL, g_iniPath, MAX_PATH);
@@ -78,55 +75,21 @@ static void get_ini_path(void) {
     }
 }
 
-static void save_config(int x, int y, BOOL locked, BOOL minimized) {
+static void save_config(int x, int y, BOOL minimized) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%d", x);
     WritePrivateProfileStringA("HUD", "x", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", y);
     WritePrivateProfileStringA("HUD", "y", buf, g_iniPath);
-    snprintf(buf, sizeof(buf), "%d", locked ? 1 : 0);
-    WritePrivateProfileStringA("HUD", "locked", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%d", minimized ? 1 : 0);
     WritePrivateProfileStringA("HUD", "minimized", buf, g_iniPath);
 }
 
 static void update_tray_tip(void) {
     if (fn_Shell_NotifyIconW && g_nid.hWnd) {
-        if (g_locked) {
-            wcscpy(g_nid.szTip, L"GhostHUD - Modo Jogo (Travado) [F9 / F8]");
-        } else {
-            wcscpy(g_nid.szTip, L"GhostHUD - Modo Ajuste (Arrastável) [F9 / F8]");
-        }
+        wcscpy(g_nid.szTip, L"GhostHUD - Monitor de Desempenho");
         fn_Shell_NotifyIconW(NIM_MODIFY, &g_nid);
     }
-}
-
-static void set_window_locked(HWND hWnd, BOOL locked) {
-    g_locked = locked;
-    LONG_PTR style = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
-    if (g_locked) {
-        style |= WS_EX_TRANSPARENT;
-    } else {
-        style &= ~WS_EX_TRANSPARENT;
-    }
-    SetWindowLongPtrW(hWnd, GWL_EXSTYLE, style);
-
-    // CRÍTICO: Avisa o DWM que o estilo de frame mudou para aplicar transparência de cliques imediatamente!
-    SetWindowPos(hWnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-
-    RECT r;
-    GetWindowRect(hWnd, &r);
-    save_config(r.left, r.top, g_locked, g_minimized);
-
-    update_tray_tip();
-    InvalidateRect(hWnd, NULL, TRUE);
-}
-
-static void toggle_window_locked(HWND hWnd) {
-    DWORD now = GetTickCount();
-    if (now - g_lastToggleLockTime < 250) return;
-    g_lastToggleLockTime = now;
-    set_window_locked(hWnd, !g_locked);
 }
 
 static void set_window_minimized(HWND hWnd, BOOL min) {
@@ -141,7 +104,7 @@ static void set_window_minimized(HWND hWnd, BOOL min) {
     HRGN hRgn = CreateRoundRectRgn(0, 0, target_w + 1, target_h + 1, 8, 8);
     SetWindowRgn(hWnd, hRgn, TRUE);
 
-    save_config(r.left, r.top, g_locked, g_minimized);
+    save_config(r.left, r.top, g_minimized);
     InvalidateRect(hWnd, NULL, TRUE);
 }
 
@@ -152,23 +115,11 @@ static void toggle_window_minimized(HWND hWnd) {
     set_window_minimized(hWnd, !g_minimized);
 }
 
-static volatile BOOL g_hotkeyRunning = TRUE;
-static HANDLE g_hHotkeyThread = NULL;
-
+// Thread em segundo plano para monitorar GetAsyncKeyState (F8 funciona mesmo em segundo plano/jogos)
 static DWORD WINAPI HotkeyThread(LPVOID lpParam) {
-    BOOL f9_prev = FALSE;
     BOOL f8_prev = FALSE;
 
     while (g_hotkeyRunning) {
-        SHORT f9_state = GetAsyncKeyState(VK_F9);
-        BOOL f9_down = (f9_state & 0x8000) != 0;
-        if (f9_down && !f9_prev) {
-            if (g_hWnd) {
-                PostMessageW(g_hWnd, WM_COMMAND, IDM_TOGGLE_LOCK, 0);
-            }
-        }
-        f9_prev = f9_down;
-
         SHORT f8_state = GetAsyncKeyState(VK_F8);
         BOOL f8_down = (f8_state & 0x8000) != 0;
         if (f8_down && !f8_prev) {
@@ -188,13 +139,11 @@ static void show_tray_menu(HWND hWnd) {
     GetCursorPos(&pt);
 
     HMENU hMenu = CreatePopupMenu();
-    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, IDM_TOGGLE_LOCK, 
-                g_locked ? L"Desbloquear p/ Mover (Modo Ajuste) [F9]" : L"Bloquear Cliques (Modo Jogo) [F9]");
-    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING, IDM_TOGGLE_SIZE, 
-                g_minimized ? L"Maximizar HUD (Normal) [F8]" : L"Minimizar HUD (Quadradinho) [F8]");
-    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_STRING, IDM_RESET_POS, L"Resetar Posição");
-    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenuW(hMenu, 4, MF_BYPOSITION | MF_STRING, IDM_QUIT, L"Sair");
+    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, IDM_TOGGLE_SIZE, 
+                g_minimized ? L"Maximizar HUD (Normal) [-]" : L"Minimizar HUD (Compacto) [+]");
+    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING, IDM_RESET_POS, L"Resetar Posição");
+    InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, IDM_QUIT, L"Sair");
 
     SetForegroundWindow(hWnd);
     TrackPopupMenuEx(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, hWnd, NULL);
@@ -211,33 +160,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
-        // Modo Ajuste: HTCLIENT para receber cliques. Modo Jogo: HTTRANSPARENT para cliques passarem direto.
+        // Recebe cliques normalmente em qualquer momento
         case WM_NCHITTEST: {
-            if (g_locked) {
-                return HTTRANSPARENT;
-            }
             return HTCLIENT;
         }
 
         case WM_SETCURSOR: {
-            if (!g_locked) {
-                POINT pt;
-                GetCursorPos(&pt);
-                ScreenToClient(hWnd, &pt);
-                if (UI_IS_TOGGLE_BTN(pt.x, pt.y, g_minimized)) {
-                    SetCursor(LoadCursor(NULL, IDC_HAND));
-                } else {
-                    SetCursor(LoadCursor(NULL, IDC_SIZEALL));
-                }
-                return TRUE;
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hWnd, &pt);
+            if (UI_IS_TOGGLE_BTN(pt.x, pt.y, g_minimized)) {
+                SetCursor(LoadCursor(NULL, IDC_HAND));
+            } else {
+                SetCursor(LoadCursor(NULL, IDC_ARROW));
             }
-            return DefWindowProcW(hWnd, msg, wParam, lParam);
+            return TRUE;
         }
 
         case WM_HOTKEY: {
-            if (wParam == ID_HOTKEY_F9 || wParam == ID_HOTKEY_CTRL_F9 || wParam == ID_HOTKEY_CTRL_SHIFT_F9) {
-                toggle_window_locked(hWnd);
-            } else if (wParam == ID_HOTKEY_F8 || wParam == ID_HOTKEY_CTRL_F8) {
+            if (wParam == ID_HOTKEY_F8 || wParam == ID_HOTKEY_CTRL_F8) {
                 toggle_window_minimized(hWnd);
             }
             return 0;
@@ -256,38 +197,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             HDC hdc = BeginPaint(hWnd, &ps);
             RECT rc;
             GetClientRect(hWnd, &rc);
-            ui_render(hdc, rc.right - rc.left, rc.bottom - rc.top, &g_metrics, g_locked, g_minimized);
+            ui_render(hdc, rc.right - rc.left, rc.bottom - rc.top, &g_metrics, g_minimized);
             EndPaint(hWnd, &ps);
             return 0;
         }
 
         case WM_LBUTTONDBLCLK: {
-            if (!g_locked) {
-                toggle_window_minimized(hWnd);
-            }
+            toggle_window_minimized(hWnd);
             return 0;
         }
 
-        // Sistema de arraste direto via SetCapture (100% infalível em qualquer versão do Windows)
+        // Sistema de arraste direto e clique no botão [-] / [+]
         case WM_LBUTTONDOWN: {
-            if (!g_locked) {
-                int mouseX = (short)LOWORD(lParam);
-                int mouseY = (short)HIWORD(lParam);
+            int mouseX = (short)LOWORD(lParam);
+            int mouseY = (short)HIWORD(lParam);
 
-                // Clique no botão discreto [-] ou [+]
-                if (UI_IS_TOGGLE_BTN(mouseX, mouseY, g_minimized)) {
-                    toggle_window_minimized(hWnd);
-                    return 0;
-                }
-
-                g_isDragging = TRUE;
-                SetCapture(hWnd);
-                GetCursorPos(&g_dragStartMouse);
-                RECT r;
-                GetWindowRect(hWnd, &r);
-                g_dragStartWin.x = r.left;
-                g_dragStartWin.y = r.top;
+            // Clique no botão discreto [-] ou [+]
+            if (UI_IS_TOGGLE_BTN(mouseX, mouseY, g_minimized)) {
+                toggle_window_minimized(hWnd);
+                return 0;
             }
+
+            // Inicia arraste imediato e suave
+            g_isDragging = TRUE;
+            SetCapture(hWnd);
+            GetCursorPos(&g_dragStartMouse);
+            RECT r;
+            GetWindowRect(hWnd, &r);
+            g_dragStartWin.x = r.left;
+            g_dragStartWin.y = r.top;
             return 0;
         }
 
@@ -308,7 +246,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 ReleaseCapture();
                 RECT r;
                 GetWindowRect(hWnd, &r);
-                save_config(r.left, r.top, g_locked, g_minimized);
+                save_config(r.left, r.top, g_minimized);
             }
             return 0;
         }
@@ -316,26 +254,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_MOVE: {
             RECT r;
             GetWindowRect(hWnd, &r);
-            save_config(r.left, r.top, g_locked, g_minimized);
+            save_config(r.left, r.top, g_minimized);
             return 0;
         }
 
         case WM_TRAYICON: {
             if (lParam == WM_RBUTTONUP) {
                 show_tray_menu(hWnd);
-            } else if (lParam == WM_LBUTTONDBLCLK) {
+            } else if (lParam == WM_LBUTTONDBLCLK || lParam == WM_LBUTTONUP) {
                 toggle_window_minimized(hWnd);
-            } else if (lParam == WM_LBUTTONUP) {
-                toggle_window_locked(hWnd);
             }
             return 0;
         }
 
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
-                case IDM_TOGGLE_LOCK:
-                    toggle_window_locked(hWnd);
-                    break;
                 case IDM_TOGGLE_SIZE:
                     toggle_window_minimized(hWnd);
                     break;
@@ -345,7 +278,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     SetWindowPos(hWnd, HWND_TOPMOST, 120, 80, w, h, SWP_SHOWWINDOW);
                     HRGN hRgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, 8, 8);
                     SetWindowRgn(hWnd, hRgn, TRUE);
-                    save_config(120, 80, g_locked, g_minimized);
+                    save_config(120, 80, g_minimized);
                     break;
                 }
                 case IDM_QUIT:
@@ -363,9 +296,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 CloseHandle(g_hHotkeyThread);
                 g_hHotkeyThread = NULL;
             }
-            UnregisterHotKey(hWnd, ID_HOTKEY_F9);
-            UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_F9);
-            UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_SHIFT_F9);
             UnregisterHotKey(hWnd, ID_HOTKEY_F8);
             UnregisterHotKey(hWnd, ID_HOTKEY_CTRL_F8);
             if (fn_Shell_NotifyIconW) {
@@ -407,7 +337,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Configurações salvas
     int start_x = GetPrivateProfileIntA("HUD", "x", 120, g_iniPath);
     int start_y = GetPrivateProfileIntA("HUD", "y", 80, g_iniPath);
-    g_locked = GetPrivateProfileIntA("HUD", "locked", 0, g_iniPath);
     g_minimized = GetPrivateProfileIntA("HUD", "minimized", 0, g_iniPath);
 
     // Registro da classe da janela (com CS_DBLCLKS para detectar clique duplo)
@@ -422,9 +351,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Estilos de janela: Sem bordas (WS_POPUP), Topmost, Layered, Fora do Alt+Tab
     DWORD exStyle = WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
-    if (g_locked) {
-        exStyle |= WS_EX_TRANSPARENT;
-    }
 
     int init_w = g_minimized ? HUD_MINI_WIDTH : HUD_WIDTH;
     int init_h = g_minimized ? HUD_MINI_HEIGHT : HUD_HEIGHT;
@@ -454,15 +380,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         fn_SetLayeredWindowAttributes(g_hWnd, 0, 230, LWA_ALPHA);
     }
 
-    // Registra atalhos globais F9 (Travar/Destravar) e F8 (Minimizar/Maximizar)
-    RegisterHotKey(g_hWnd, ID_HOTKEY_F9, 0, VK_F9);
-    RegisterHotKey(g_hWnd, ID_HOTKEY_CTRL_F9, MOD_CONTROL, VK_F9);
-    RegisterHotKey(g_hWnd, ID_HOTKEY_CTRL_SHIFT_F9, MOD_CONTROL | MOD_SHIFT, VK_F9);
-
+    // Registra atalhos de minimizar/maximizar
     RegisterHotKey(g_hWnd, ID_HOTKEY_F8, 0, VK_F8);
     RegisterHotKey(g_hWnd, ID_HOTKEY_CTRL_F8, MOD_CONTROL, VK_F8);
 
-    // Thread em segundo plano para monitorar GetAsyncKeyState (F9 e F8 funcionam com o app em segundo plano e dentro de jogos)
+    // Thread em segundo plano para monitorar GetAsyncKeyState (F8)
     g_hotkeyRunning = TRUE;
     g_hHotkeyThread = CreateThread(NULL, 0, HotkeyThread, NULL, 0, NULL);
 

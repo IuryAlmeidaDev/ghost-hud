@@ -9,12 +9,11 @@ static HFONT hFontMini = NULL;
 // Paleta de Cores Inspirada no Estilo MMORPG / Dark Navy Slate do Print
 #define COLOR_BG          RGB(13, 17, 26)      // Fundo azul-marinho profundo do jogo
 #define COLOR_HEADER_BG   RGB(19, 25, 36)      // Fundo do cabeçalho integrado
-#define COLOR_BORDER_LOCK RGB(40, 50, 68)      // Borda metálica sutil estilo interface MMO
-#define COLOR_BORDER_ADJ  RGB(0, 229, 255)     // Borda ciano neon no modo ajuste
+#define COLOR_BORDER      RGB(40, 50, 68)      // Borda metálica sutil e elegante estilo interface MMO
 #define COLOR_DIVIDER     RGB(30, 38, 54)      // Divisores elegantes de 1px
 #define COLOR_TRACK       RGB(24, 30, 42)      // Trilha escura das barras de carga
 
-#define COLOR_TITLE       RGB(180, 195, 215)   // Título do cabeçalho (GhostHUD)
+#define COLOR_TITLE       RGB(180, 195, 215)   // Título do cabeçalho e botões (GhostHUD)
 #define COLOR_LABEL       RGB(126, 142, 159)   // Rótulos secundários (CPU, GPU, RAM)
 
 // Escala de Cores Progressiva de 4 Estágios (Combinando com a interface do jogo):
@@ -23,7 +22,6 @@ static HFONT hFontMini = NULL;
 #define COLOR_YELLOW      RGB(255, 212, 59)    // 🟡 Amarelo ouro
 #define COLOR_ORANGE      RGB(255, 146, 43)    // 🟠 Laranja quente
 #define COLOR_RED         RGB(255, 107, 107)   // 🔴 Vermelho crítico (90%+)
-#define COLOR_CYAN        RGB(0, 229, 255)     // Ciano elétrico de ajuste
 
 static COLORREF get_status_color(int usage_pct, int temp_c) {
     int score = usage_pct;
@@ -89,7 +87,7 @@ static void draw_gauge_bar(HDC hdc, int x, int y, int width, int height, int pct
     }
 }
 
-static void render_mini_mode(HDC memDC, int width, int height, const HardwareMetrics *m, BOOL locked) {
+static void render_mini_mode(HDC memDC, int width, int height, const HardwareMetrics *m) {
     // Cabeçalho mini
     RECT rHdr = { 2, 2, width - 2, 17 };
     HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
@@ -102,12 +100,12 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
 
     // Título à esquerda
     RECT rTitle = { 6, 2, width - 20, 17 };
-    DrawTextA(memDC, locked ? "HUD" : "MOVER", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    DrawTextA(memDC, "HUD", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
     // Botão discreto [+] de maximizar no canto superior direito
     int btn_x = width - 18;
     int btn_y = 3;
-    HPEN hPenPlus = CreatePen(PS_SOLID, 2, locked ? COLOR_TITLE : COLOR_CYAN);
+    HPEN hPenPlus = CreatePen(PS_SOLID, 2, COLOR_TITLE);
     HPEN oldPenBtn = (HPEN)SelectObject(memDC, hPenPlus);
     MoveToEx(memDC, btn_x + 2, btn_y + 5, NULL);
     LineTo(memDC, btn_x + 11, btn_y + 5);
@@ -172,7 +170,7 @@ static void render_mini_mode(HDC memDC, int width, int height, const HardwareMet
     DrawTextA(memDC, buf, -1, &rV3, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 }
 
-static void render_normal_mode(HDC memDC, int width, int height, const HardwareMetrics *m, BOOL locked) {
+static void render_normal_mode(HDC memDC, int width, int height, const HardwareMetrics *m) {
     // 1. Cabeçalho Integrado Estilo Jogo (Topo 19px)
     RECT rHdr = { 2, 2, width - 2, 19 };
     HBRUSH hBrushHdr = CreateSolidBrush(COLOR_HEADER_BG);
@@ -182,29 +180,20 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
     SetBkMode(memDC, TRANSPARENT);
     SelectObject(memDC, hFontTitle);
 
-    // Título e ícone à esquerda
+    // Título limpo e elegante à esquerda
     SetTextColor(memDC, COLOR_TITLE);
-    RECT rTitle = { 10, 2, 140, 19 };
+    RECT rTitle = { 10, 2, width - 30, 19 };
     DrawTextA(memDC, "GHOST HUD  \x95  DESEMPENHO", -1, &rTitle, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
     // Botão discreto [-] de minimizar no canto superior direito
     int btn_x = width - 22;
     int btn_y = 3;
-    HPEN hPenMinus = CreatePen(PS_SOLID, 2, locked ? COLOR_TITLE : COLOR_CYAN);
+    HPEN hPenMinus = CreatePen(PS_SOLID, 2, COLOR_TITLE);
     HPEN oldPenBtn = (HPEN)SelectObject(memDC, hPenMinus);
     MoveToEx(memDC, btn_x + 3, btn_y + 6, NULL);
     LineTo(memDC, btn_x + 13, btn_y + 6);
     SelectObject(memDC, oldPenBtn);
     DeleteObject(hPenMinus);
-
-    // Indicadores e atalhos à direita no cabeçalho (ao lado do botão -)
-    RECT rControls = { width - 210, 2, btn_x - 4, 19 };
-    SetTextColor(memDC, locked ? COLOR_LABEL : COLOR_CYAN);
-    if (locked) {
-        DrawTextA(memDC, "[MODO JOGO] F9: MOVER", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-    } else {
-        DrawTextA(memDC, "[AJUSTE: ARRASTE]", -1, &rControls, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-    }
 
     // Linha divisória horizontal separando o cabeçalho do conteúdo
     HPEN hPenDiv = CreatePen(PS_SOLID, 1, COLOR_DIVIDER);
@@ -288,7 +277,7 @@ static void render_normal_mode(HDC memDC, int width, int height, const HardwareM
     draw_gauge_bar(memDC, col2_x + (col_w - gauge_w) / 2, gauge_y, gauge_w, gauge_h, ram_usage, color_ram);
 }
 
-void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL locked, BOOL minimized) {
+void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL minimized) {
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBmp = CreateCompatibleBitmap(hdc, width, height);
     HBITMAP oldBmp = (HBITMAP)SelectObject(memDC, memBmp);
@@ -305,17 +294,17 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *m, BOOL lo
 
     // 3. Renderiza conteúdo específico (Normal ou Mini)
     if (minimized) {
-        render_mini_mode(memDC, width, height, m, locked);
+        render_mini_mode(memDC, width, height, m);
     } else {
-        render_normal_mode(memDC, width, height, m, locked);
+        render_normal_mode(memDC, width, height, m);
     }
 
     // 4. Remove o clipping para desenhar a borda externa
     SelectClipRgn(memDC, NULL);
     DeleteObject(hClip);
 
-    // 5. Desenha a borda metálica arredondada estilo MMORPG
-    HPEN hPenBorder = CreatePen(PS_SOLID, locked ? 1 : 2, locked ? COLOR_BORDER_LOCK : COLOR_BORDER_ADJ);
+    // 5. Desenha a borda metálica elegante e discreta (1px constante, estilo MMORPG)
+    HPEN hPenBorder = CreatePen(PS_SOLID, 1, COLOR_BORDER);
     HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, GetStockObject(NULL_BRUSH));
     HPEN oldPen = (HPEN)SelectObject(memDC, hPenBorder);
 

@@ -16,7 +16,7 @@
 )
 
 void ui_init(void);
-void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, BOOL locked, BOOL minimized);
+void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, BOOL minimized);
 void ui_cleanup(void);
 
 #endif // UI_H
