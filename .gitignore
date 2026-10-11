@@ -3,5 +3,7 @@
 *.obj
 *.pdb
 *.ilk
+*.ini
+*.png
 .vscode/
 .idea/

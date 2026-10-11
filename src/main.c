@@ -121,6 +121,9 @@ static void set_window_minimized(HWND hWnd, BOOL min) {
     GetWindowRect(hWnd, &r);
     SetWindowPos(hWnd, HWND_TOPMOST, r.left, r.top, target_w, target_h, SWP_SHOWWINDOW);
 
+    HRGN hRgn = CreateRoundRectRgn(0, 0, target_w + 1, target_h + 1, 8, 8);
+    SetWindowRgn(hWnd, hRgn, TRUE);
+
     save_config(r.left, r.top, g_locked, g_minimized);
     InvalidateRect(hWnd, NULL, TRUE);
 }
@@ -241,6 +244,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     int w = g_minimized ? HUD_MINI_WIDTH : HUD_WIDTH;
                     int h = g_minimized ? HUD_MINI_HEIGHT : HUD_HEIGHT;
                     SetWindowPos(hWnd, HWND_TOPMOST, 120, 80, w, h, SWP_SHOWWINDOW);
+                    HRGN hRgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, 8, 8);
+                    SetWindowRgn(hWnd, hRgn, TRUE);
                     save_config(120, 80, g_locked, g_minimized);
                     break;
                 }
@@ -335,6 +340,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         MessageBoxA(NULL, buf, "GhostHUD", MB_OK | MB_ICONERROR);
         return 1;
     }
+
+    HRGN hRgn = CreateRoundRectRgn(0, 0, init_w + 1, init_h + 1, 8, 8);
+    SetWindowRgn(g_hWnd, hRgn, TRUE);
 
     // Aplica opacidade translúcida de 90% (230 / 255)
     if (fn_SetLayeredWindowAttributes) {

@@ -5,10 +5,10 @@
 #include "hardware.h"
 
 #define HUD_WIDTH        320
-#define HUD_HEIGHT       56
+#define HUD_HEIGHT       66
 
-#define HUD_MINI_WIDTH   64
-#define HUD_MINI_HEIGHT  56
+#define HUD_MINI_WIDTH   72
+#define HUD_MINI_HEIGHT  66
 
 void ui_init(void);
 void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, BOOL locked, BOOL minimized);
