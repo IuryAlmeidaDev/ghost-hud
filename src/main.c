@@ -237,6 +237,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    if (!hInstance) {
+        hInstance = GetModuleHandleW(NULL);
+    }
+
     get_ini_path();
 
     // Carrega User32 e Shell32 dinamicamente
@@ -280,6 +284,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     );
 
     if (!g_hWnd) {
+        DWORD err = GetLastError();
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Falha ao inicializar janela GhostHUD (Erro: %lu)", err);
+        MessageBoxA(NULL, buf, "GhostHUD", MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -318,3 +326,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     return (int)msg.wParam;
 }
+
+// Ponto de entrada padrão para compatibilidade universal com qualquer compilador
+int main(int argc, char **argv) {
+    return WinMain(GetModuleHandleW(NULL), NULL, GetCommandLineA(), SW_SHOW);
+}
+
