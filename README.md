@@ -58,8 +58,6 @@ Diferente de softwares pesados como MSI Afterburner ou GeForce Experience, o Gho
   - **Vertical:** Coluna lateral, ideal para fixar no canto do monitor como status bar de RPG.
 
 ### 🧲 Ergonomia Gamer Avançada
-- **Modo Auto-Game (Detecção Automática):** O HUD fica oculto enquanto você navega ou trabalha, e aparece automaticamente na tela assim que qualquer jogo é detectado em tela cheia/borderless.
-- **Contador de Farm / Kills / Bosses:** Slot interativo que conta abates, runs ou farm (`+1` direto no clique ou via atalho global **`F9`** dentro do jogo), com opções de zerar, subtrair e trocar rótulo (`FARM`, `KILLS`, `BOSS`, `RUNS`).
 - **Snap Magnético nas Bordas:** Ao arrastar para perto do canto do monitor, o HUD "gruda" suavemente a 8px da borda para alinhamento milimétrico.
 - **Modo Fantasma / Click-Through (`F10`):** Torna o HUD transparente aos cliques do mouse (`WS_EX_TRANSPARENT`). Suas miras, habilidades e cliques passam direto para o jogo.
 - **Ajuste de Opacidade no Scroll:** Role a rodinha do mouse sobre o HUD para dosar a transparência (de 40% a 100%).
@@ -74,7 +72,6 @@ Diferente de softwares pesados como MSI Afterburner ou GeForce Experience, o Gho
 | Ação | Como Utilizar |
 | :--- | :--- |
 | **Mover o HUD** | Clique com botão esquerdo e arraste (com alinhamento magnético) |
-| **Contador (+1)** | Clique diretamente no slot do contador ou aperte **`F9`** em qualquer jogo |
 | **Menu de Configurações** | Clique na **Engrenagem [⚙]**, botão direito no HUD ou ícone da bandeja |
 | **Alternar Modo Fantasma** | Tecla **`F10`** (ou no menu) |
 | **Regular Transparência** | Role a rodinha do mouse (**Scroll**) sobre o HUD |

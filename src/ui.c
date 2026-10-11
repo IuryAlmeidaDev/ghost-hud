@@ -162,7 +162,6 @@ void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, i
     if (cfg->show_ram) active_slots++;
     if (cfg->show_ping) active_slots++;
     if (cfg->show_power) active_slots++;
-    if (cfg->show_counter) active_slots++;
 
     int slot_w, slot_h, slot_gap, header_h, pad_x, pad_y;
     int min_hdr_w;
@@ -379,7 +378,6 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
     if (config->show_ram) active_slots++;
     if (config->show_ping) active_slots++;
     if (config->show_power) active_slots++;
-    if (config->show_counter) active_slots++;
 
     if (active_slots > 0) {
         char buf[32];
@@ -426,13 +424,6 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
                 int watts = metrics ? metrics->gpu_power_w : 0;
                 snprintf(buf, sizeof(buf), "%dW", watts);
                 DRAW_SLOT_V("PWR", buf, (watts * 100) / 290, get_power_color(watts));
-            }
-            if (config->show_counter) {
-                const char *lbl = (config->counter_label_type == 1) ? "KILLS" : 
-                                  ((config->counter_label_type == 2) ? "BOSS" : 
-                                  ((config->counter_label_type == 3) ? "RUNS" : "FARM"));
-                snprintf(buf, sizeof(buf), "%d", config->counter_val);
-                DRAW_SLOT_V(lbl, buf, (config->counter_val % 100), COLOR_YELLOW);
             }
             #undef DRAW_SLOT_V
 
@@ -485,13 +476,6 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
                 snprintf(buf, sizeof(buf), "%dW", watts);
                 DRAW_SLOT_H("PWR", buf, (watts * 100) / 290, get_power_color(watts));
             }
-            if (config->show_counter) {
-                const char *lbl = (config->counter_label_type == 1) ? "KILLS" : 
-                                  ((config->counter_label_type == 2) ? "BOSS" : 
-                                  ((config->counter_label_type == 3) ? "RUNS" : "FARM"));
-                snprintf(buf, sizeof(buf), "%d", config->counter_val);
-                DRAW_SLOT_H(lbl, buf, (config->counter_val % 100), COLOR_YELLOW);
-            }
             #undef DRAW_SLOT_H
         }
     }
@@ -516,63 +500,4 @@ void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, c
     SelectObject(memDC, oldBitmap);
     DeleteObject(memBitmap);
     DeleteDC(memDC);
-}
-
-int ui_hit_test_counter(int mouseX, int mouseY, int width, int height, const HudConfig *config) {
-    if (!config || !config->show_counter) return 0;
-
-    HudSize size = (config->size >= 0 && config->size <= 2) ? config->size : HUD_SIZE_SMALL;
-    int pad_x, pad_y, slot_gap, header_h;
-    switch (size) {
-        case HUD_SIZE_MEDIUM: pad_x = 4; pad_y = 4; slot_gap = 4; header_h = 16; break;
-        case HUD_SIZE_LARGE:  pad_x = 5; pad_y = 5; slot_gap = 5; header_h = 19; break;
-        case HUD_SIZE_SMALL:
-        default:              pad_x = 3; pad_y = 3; slot_gap = 3; header_h = 13; break;
-    }
-
-    int counter_index = -1;
-    int total_slots = 0;
-    if (config->show_cpu) total_slots++;
-    if (config->show_gpu) total_slots++;
-    if (config->show_vram) total_slots++;
-    if (config->show_ram) total_slots++;
-    if (config->show_ping) total_slots++;
-    if (config->show_power) total_slots++;
-    if (config->show_counter) {
-        counter_index = total_slots;
-        total_slots++;
-    }
-
-    if (counter_index < 0 || total_slots == 0) return 0;
-
-    if (config->orientation == HUD_ORIENT_VERTICAL) {
-        int slot_w = width - (pad_x * 2);
-        int slot_h = (size == HUD_SIZE_SMALL) ? 26 : ((size == HUD_SIZE_MEDIUM) ? 33 : 40);
-        int target_y = header_h + pad_y + (counter_index * (slot_h + slot_gap));
-        if (mouseX >= pad_x && mouseX <= pad_x + slot_w &&
-            mouseY >= target_y && mouseY <= target_y + slot_h) {
-            return 1;
-        }
-    } else {
-        int slot_y = header_h + 2;
-        int slot_h = height - slot_y - pad_y;
-        int total_gaps = (total_slots - 1) * slot_gap;
-        int available_w = width - (pad_x * 2) - total_gaps;
-        int base_w = available_w / total_slots;
-        int extra = available_w % total_slots;
-
-        int cur_x = pad_x;
-        for (int i = 0; i < total_slots; i++) {
-            int w_this = base_w + (i < extra ? 1 : 0);
-            if (i == counter_index) {
-                if (mouseX >= cur_x && mouseX <= cur_x + w_this &&
-                    mouseY >= slot_y && mouseY <= slot_y + slot_h) {
-                    return 1;
-                }
-                break;
-            }
-            cur_x += w_this + slot_gap;
-        }
-    }
-    return 0;
 }

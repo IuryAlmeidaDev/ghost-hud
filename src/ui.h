@@ -30,16 +30,12 @@ typedef struct {
     BOOL show_ping;
     BOOL show_power;
     BOOL show_clock;
-    BOOL show_counter;
-    int counter_val;
-    int counter_label_type; // 0: FARM, 1: KILLS, 2: BOSS, 3: RUNS
     HudSize size;
     HudOrientation orientation;
     HudTheme theme;
     int alpha;
     BOOL ghost_mode;
     BOOL auto_fade;
-    BOOL auto_game_mode;
 } HudConfig;
 
 #define UI_IS_GEAR_BTN(x, y, width, header_h) ( \
@@ -49,7 +45,6 @@ typedef struct {
 void ui_init(void);
 void ui_get_window_size(const HudConfig *cfg, int *out_width, int *out_height, int *out_header_h);
 void ui_render(HDC hdc, int width, int height, const HardwareMetrics *metrics, const HudConfig *config);
-int ui_hit_test_counter(int mouseX, int mouseY, int width, int height, const HudConfig *config);
 void ui_cleanup(void);
 
 #endif // UI_H
