@@ -4,15 +4,16 @@
 #include <windows.h>
 #include "hardware.h"
 
-#define HUD_WIDTH        320
-#define HUD_HEIGHT       66
+// Dimensões 40% menores (Compacto e discreto para não poluir o jogo)
+#define HUD_WIDTH        192
+#define HUD_HEIGHT       42
 
-#define HUD_MINI_WIDTH   72
-#define HUD_MINI_HEIGHT  66
+#define HUD_MINI_WIDTH   50
+#define HUD_MINI_HEIGHT  42
 
 #define UI_IS_TOGGLE_BTN(x, y, min) ( \
-    (min) ? ((x) >= (HUD_MINI_WIDTH - 20) && (x) <= (HUD_MINI_WIDTH - 3) && (y) >= 2 && (y) <= 16) : \
-            ((x) >= (HUD_WIDTH - 24) && (x) <= (HUD_WIDTH - 4) && (y) >= 2 && (y) <= 18) \
+    (min) ? ((x) >= (HUD_MINI_WIDTH - 18) && (x) <= (HUD_MINI_WIDTH - 2) && (y) >= 1 && (y) <= 15) : \
+            ((x) >= (HUD_WIDTH - 20) && (x) <= (HUD_WIDTH - 2) && (y) >= 1 && (y) <= 15) \
 )
 
 void ui_init(void);
